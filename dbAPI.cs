@@ -62,174 +62,6 @@ namespace databaseAPI
         //=== working
 
 
-        public string[,] getMeanDeltasFromDB(string dbConnection, string projectTitle, string timeBlockStart, string timeBlockEnd, string[,] strSensorID)
-        {
-            string[,] strDeltas = new string[2000, 7];
-            int iCounter = 0;
-
-            while (iCounter < strSensorID.GetLength(0))
-            {
-                string pointName = strSensorID[iCounter, 0];
-                string pointID = strSensorID[iCounter, 1];
-
-                if (pointName == "NoMore")
-                    break;
-
-                double sumdN = 0, sumdE = 0, sumdH = 0, sumdR = 0, sumdT = 0;
-                int obsCount = 0;
-
-                if (pointID != "Missing")
-                {
-                    using SqlConnection conn = new(dbConnection);
-                    conn.Open();
-
-                    string sql = @"
-                SELECT dN, dE, dH, dR, dT 
-                FROM dbo.TMTPosition_Terrestrial
-                WHERE SensorID = @SensorID
-                  AND IsOutlier = 0
-                  AND EndTimeUTC BETWEEN @StartTime AND @EndTime";
-
-                    using SqlCommand cmd = new(sql, conn);
-                    cmd.Parameters.AddWithValue("@SensorID", pointID);
-                    cmd.Parameters.AddWithValue("@StartTime", timeBlockStart.Replace("'",""));
-                    cmd.Parameters.AddWithValue("@EndTime", timeBlockEnd.Replace("'", ""));
-
-                    using SqlDataReader reader = cmd.ExecuteReader();
-                    while (reader.Read())
-                    {
-                        sumdN += Math.Round(Convert.ToDouble(reader["dN"]), 4);
-                        sumdE += Math.Round(Convert.ToDouble(reader["dE"]), 4);
-                        sumdH += Math.Round(Convert.ToDouble(reader["dH"]), 4);
-                        sumdR += Math.Round(Convert.ToDouble(reader["dR"]), 4);
-                        sumdT += Math.Round(Convert.ToDouble(reader["dT"]), 4);
-                        obsCount++;
-                    }
-                }
-
-                // Compute means or assign fallback values
-                double meandN = 0, meandE = 0, meandH = 0, meandR = 0, meandT = 0;
-
-                if (pointID != "Missing" && obsCount > 0)
-                {
-                    meandN = Math.Round(sumdN / obsCount, 4);
-                    meandE = Math.Round(sumdE / obsCount, 4);
-                    meandH = Math.Round(sumdH / obsCount, 4);
-                    meandR = Math.Round(sumdR / obsCount, 4);
-                    meandT = Math.Round(sumdT / obsCount, 4);
-                }
-                else
-                {
-                    obsCount = -99; // flag for no data
-                }
-
-                // Assign results
-                strDeltas[iCounter, 0] = pointName;
-                strDeltas[iCounter, 1] = meandN.ToString();
-                strDeltas[iCounter, 2] = meandE.ToString();
-                strDeltas[iCounter, 3] = meandH.ToString();
-                strDeltas[iCounter, 4] = meandR.ToString();
-                strDeltas[iCounter, 5] = meandT.ToString();
-                strDeltas[iCounter, 6] = obsCount.ToString();
-
-                iCounter++;
-            }
-
-            // Add terminator entry
-            strDeltas[iCounter, 0] = "NoMore";
-            strDeltas[iCounter, 1] = "999";
-            strDeltas[iCounter, 2] = "999";
-            strDeltas[iCounter, 3] = "999";
-            strDeltas[iCounter, 4] = "999";
-            strDeltas[iCounter, 5] = "999";
-            strDeltas[iCounter, 6] = "0";
-
-            return strDeltas;
-        }
-
-
-        public string[,] getAllDeltasFromDB(string dbConnection, string projectTitle, string timeBlockStart, string timeBlockEnd, string[,] strSensorID)
-        {
-            string[,] strDeltas = new string[2000, 7];
-            int iCounter = 0;
-
-            while (iCounter < strSensorID.GetLength(0))
-            {
-                string pointName = strSensorID[iCounter, 0];
-                string pointID = strSensorID[iCounter, 1];
-
-                if (pointName == "NoMore")
-                    break;
-
-                double sumdN = 0, sumdE = 0, sumdH = 0, sumdR = 0, sumdT = 0;
-                int obsCount = 0;
-
-                if (pointID != "Missing")
-                {
-                    using SqlConnection conn = new(dbConnection);
-                    conn.Open();
-
-                    string sql = @"
-                SELECT dN, dE, dH, dR, dT 
-                FROM dbo.TMTPosition_Terrestrial
-                WHERE SensorID = @SensorID
-                  AND IsOutlier = 0
-                  AND EndTimeUTC BETWEEN @StartTime AND @EndTime";
-
-                    using SqlCommand cmd = new(sql, conn);
-                    cmd.Parameters.AddWithValue("@SensorID", pointID);
-                    cmd.Parameters.AddWithValue("@StartTime", timeBlockStart.Replace("'", ""));
-                    cmd.Parameters.AddWithValue("@EndTime", timeBlockEnd.Replace("'", ""));
-
-                    using SqlDataReader reader = cmd.ExecuteReader();
-                    while (reader.Read())
-                    {
-                        sumdN += Math.Round(Convert.ToDouble(reader["dN"]), 4);
-                        sumdE += Math.Round(Convert.ToDouble(reader["dE"]), 4);
-                        sumdH += Math.Round(Convert.ToDouble(reader["dH"]), 4);
-                        sumdR += Math.Round(Convert.ToDouble(reader["dR"]), 4);
-                        sumdT += Math.Round(Convert.ToDouble(reader["dT"]), 4);
-                        obsCount++;
-                    }
-                }
-
-                // Compute means or assign fallback values
-                double meandN = 0, meandE = 0, meandH = 0, meandR = 0, meandT = 0;
-
-                if (pointID == "Missing")
-                {
-                    obsCount = -99; // flag for no data
-                }
-
-                // Assign results
-                strDeltas[iCounter, 0] = pointName;
-                strDeltas[iCounter, 1] = meandN.ToString();
-                strDeltas[iCounter, 2] = meandE.ToString();
-                strDeltas[iCounter, 3] = meandH.ToString();
-                strDeltas[iCounter, 4] = meandR.ToString();
-                strDeltas[iCounter, 5] = meandT.ToString();
-                strDeltas[iCounter, 6] = obsCount.ToString();
-
-                iCounter++;
-            }
-
-            // Add terminator entry
-            strDeltas[iCounter, 0] = "NoMore";
-            strDeltas[iCounter, 1] = "999";
-            strDeltas[iCounter, 2] = "999";
-            strDeltas[iCounter, 3] = "999";
-            strDeltas[iCounter, 4] = "999";
-            strDeltas[iCounter, 5] = "999";
-            strDeltas[iCounter, 6] = "0";
-
-            return strDeltas;
-        }
-
-
-
-
-
-
 
         //====[Maintenance methods]===
 
@@ -1461,272 +1293,6 @@ ExitPoint:
         }
 
 
-        public string[,] getLocationID_DO_NOT_USE(string strDBconnection, string strProjectID, string[] strPointNames)
-        {
-            //
-            // Purpose:
-            //      To extract the location ID from TMCLocation table: FAULT - must rewrite to exclude matching location name to sensor name
-            // Input:
-            //      Receives array of point names extracted from the workbook
-            // Output:
-            //      Returns array [PointName,LocationID]
-            // Useage:
-            //      string[,] strNamesID = gna.getLocationID(strDBconnection, strProjectTitle, strPointNames);
-            // Comment:
-            //      If missing then ID="Missing"
-            //      last point in list = "NoMore"
-            //
-
-            string[,] strPointID = new string[5000, 2];
-            string strPointName;
-            int iCounter = 0;
-
-            strPointName = strPointNames[iCounter];
-
-            using (SqlConnection conn = new(strDBconnection))
-            {
-                //instantiate and open connection
-                conn.Open();
-                do
-                {
-                    // define the SQL query
-                    string SQLaction = @"
-                    SELECT TMCLocation.ID  
-                    FROM dbo.TMCLocation 
-                    WHERE TMCLocation.Name = @Name
-                    AND TMCLocation.ProjectID = @ProjectID";
-
-                    SqlCommand cmd = new(SQLaction, conn);
-
-                    // define the parameter used in the command object and add to the command
-                    cmd.Parameters.Add(new SqlParameter("@Name", strPointName));
-                    cmd.Parameters.Add(new SqlParameter("@ProjectID", strProjectID));
-
-                    // Define the data reader
-                    SqlDataReader dataReader = cmd.ExecuteReader();
-
-                    // get the values
-                    // If the point exists, there will be a result. If not, then the point get marked missing
-
-                    if (dataReader.HasRows)
-                    {
-                        while (dataReader.Read())
-                        {
-                            int iLocationID = (Int32)dataReader["ID"];
-                            strPointID[iCounter, 0] = strPointName;
-                            strPointID[iCounter, 1] = Convert.ToString(iLocationID);
-                        }
-                    }
-                    else
-                    {
-                        strPointID[iCounter, 0] = strPointName;
-                        strPointID[iCounter, 1] = "Missing";
-                    }
-
-                    dataReader.Close();
-
-                    //Console.WriteLine("TMCLocation.ID:  " + iCounter+" " + strPointID[iCounter, 0]+ "  "  + strPointID[iCounter, 1]);
-
-                    iCounter++;
-                    strPointName = strPointNames[iCounter];
-
-                } while (strPointName != "NoMore");
-
-                conn.Dispose();
-                conn.Close();
-            }
-
-            strPointID[iCounter, 0] = "NoMore";
-            strPointID[iCounter, 1] = "0";
-
-            return strPointID;
-        }
-
-        public string[,] getMeanDeltasFromDB_original(string strDBconnection, string strProjectTitle, string strTimeBlockStart, string strTimeBlockEnd, string[,] strSensorID)
-        {
-            //
-            // Purpose:
-            //      To extract the mean dN,dE,dH,dR,dT from dbo.TMTPosition_Terrestrial table for the time block strTimeBlockStart to strTimeBlockEnd
-            // Input:
-            //      Receives 
-            //          array of point names & sensorID generated by getSensorIDfromDB() or readPointNamesSensorID(from Reference worksheet)
-            //          the Project Title from the config file
-            //          the start and end time blocks
-            // Output:
-            //      Returns array [PointName,dN,dE,dH, dR, dT, number of points used to compute mean]   [0,1,2,3,4,5,6]
-            //      strPointDeltas[iCounter, 0] = strPointName;
-            //      strPointDeltas[iCounter, 1] = MeandN
-            //      strPointDeltas[iCounter, 2] = MeandE
-            //      strPointDeltas[iCounter, 3] = MeandH
-            //      strPointDeltas[iCounter, 4] = MeandR
-            //      strPointDeltas[iCounter, 5] = MeandT
-            //      strPointDeltas[iCounter, 6] = ObservationCounter = "-99" id there are no observations
-            //
-            //
-            //
-            // Useage:
-            //      string[,] strPointDeltas = gna.getPointDeltas(strDBconnection, strProjectTitle, strTimeBlockStart, strTimeBlockEnd, strSensorID);
-            // Comment:
-            //      If missing then deltas are 0,0,0,-99
-            //      last point in list = "NoMore"
-            //
-
-            string[,] strDeltas = new string[2000, 7];
-            string strPointName;
-            string strPointID;
-            int iCounter = 0;
-            double dbldN;
-            double dbldE;
-            double dbldH;
-            double dbldR;
-            double dbldT;
-            double dblMeandN = 0.0;
-            double dblMeandE = 0.0;
-            double dblMeandH = 0.0;
-            double dblMeandR = 0.0;
-            double dblMeandT = 0.0;
-            int iObservationCounter = 0;
-
-            // Select the block of observations for the point within the Time Block: between strRefBlockStart and strRefBlockEnd
-            // generate the mean dN, dE, dH, dR, dT
-
-            do
-            {
-                strPointName = strSensorID[iCounter, 0];
-                strPointID = strSensorID[iCounter, 1];
-
-
-                //Console.WriteLine(strPointName + " " + strPointID);
-
-                //instantiate and open connection
-                SqlConnection conn = new(strDBconnection);
-                conn.Open();
-
-                if (strPointID == "Missing")
-                {
-                    goto ComputeMeans;
-                }
-
-                // define the SQL query
-                string SQLaction = @"
-                SELECT * FROM dbo.TMTPosition_Terrestrial  
-                WHERE SensorID = @SensorID 
-                AND IsOutlier = 0 
-                AND EndTimeUTC BETWEEN " + strTimeBlockStart +
-                " AND " + strTimeBlockEnd;
-
-
-                //Console.WriteLine(SQLaction);
-
-
-
-                //string strTemp = SQLaction;
-                SqlCommand cmd = new(SQLaction, conn);
-
-                // define the parameter used in the command object and add to the command
-                cmd.Parameters.Add(new SqlParameter("@SensorID", strPointID));
-
-                // Define the data reader
-                SqlDataReader dataReader = cmd.ExecuteReader();
-
-                // Now read through the results and generate a mean value
-                dblMeandN = 0.0;
-                dblMeandE = 0.0;
-                dblMeandH = 0.0;
-                dblMeandR = 0.0;
-                dblMeandT = 0.0;
-
-                iObservationCounter = 0;
-
-                if (dataReader.HasRows)
-                {
-                    while (dataReader.Read())
-                    {
-                        dbldN = Math.Round(Convert.ToDouble(dataReader["dN"]), 4);
-                        dbldE = Math.Round(Convert.ToDouble(dataReader["dE"]), 4);
-                        dbldH = Math.Round(Convert.ToDouble(dataReader["dH"]), 4);
-                        dbldR = Math.Round(Convert.ToDouble(dataReader["dR"]), 4);
-                        dbldT = Math.Round(Convert.ToDouble(dataReader["dT"]), 4);
-
-                        //Console.WriteLine(Convert.ToString(dbldN) + "  " + Convert.ToString(dbldE) + "  " + Convert.ToString(dbldH));
-
-                        dblMeandN += dbldN;
-                        dblMeandE += dbldE;
-                        dblMeandH += dbldH;
-                        dblMeandR += dbldR;
-                        dblMeandT += dbldT;
-                        iObservationCounter++;
-                    }
-                }
-                else
-                {
-                    dblMeandN = 0.0;
-                    dblMeandE = 0.0;
-                    dblMeandH = 0.0;
-                    dblMeandR = 0.0;
-                    dblMeandT = 0.0;
-                    iObservationCounter = -99;
-                    strSensorID[iCounter, 0] = strPointName;
-                    strSensorID[iCounter, 1] = "No Readings";
-                    goto NextPoint;
-                }
-
-ComputeMeans:
-
-                if ((strPointID != "Missing") && (iObservationCounter > 0))
-                {
-                    // Compute the mean dN, dE, dH
-                    dblMeandN = Math.Round(dblMeandN / iObservationCounter, 4);
-                    dblMeandE = Math.Round(dblMeandE / iObservationCounter, 4);
-                    dblMeandH = Math.Round(dblMeandH / iObservationCounter, 4);
-                    dblMeandR = Math.Round(dblMeandR / iObservationCounter, 4);
-                    dblMeandT = Math.Round(dblMeandT / iObservationCounter, 4);
-                }
-                else
-                {
-                    // allocate false values
-                    dblMeandN = 0.0;
-                    dblMeandE = 0.0;
-                    dblMeandH = 0.0;
-                    dblMeandR = 0.0;
-                    dblMeandT = 0.0;
-                    iObservationCounter = -99;
-                }
-
-                //Console.WriteLine("Mean");
-                //Console.WriteLine(Convert.ToString(dblMeandN) + "  " + Convert.ToString(dblMeandE) + "  " + Convert.ToString(dblMeandH));
-
-
-                //Insert the data into the data arrays
-                strDeltas[iCounter, 0] = strPointName;
-                strDeltas[iCounter, 1] = Convert.ToString(dblMeandN);
-                strDeltas[iCounter, 2] = Convert.ToString(dblMeandE);
-                strDeltas[iCounter, 3] = Convert.ToString(dblMeandH);
-                strDeltas[iCounter, 4] = Convert.ToString(dblMeandR);
-                strDeltas[iCounter, 5] = Convert.ToString(dblMeandT);
-                strDeltas[iCounter, 6] = Convert.ToString(iObservationCounter);
-NextPoint:
-
-// Close the DB connection
-                conn.Dispose();
-                conn.Close();
-
-                iCounter++;
-                strPointName = strSensorID[iCounter, 0];
-
-            } while (strPointName != "NoMore");
-
-            strDeltas[iCounter, 0] = "NoMore";
-            strDeltas[iCounter, 1] = "999";
-            strDeltas[iCounter, 2] = "999";
-            strDeltas[iCounter, 3] = "999";
-            strDeltas[iCounter, 4] = "999";
-            strDeltas[iCounter, 5] = "999";
-            strDeltas[iCounter, 6] = "0";
-
-            return strDeltas;
-        }
-
 
         public string getAlarmStatus(string strDBconnection, string strProjectTitle, string[,] strSensors, double dblAlarmWindowHrs, int iNoOfSuccessfulReadings)
         {
@@ -2818,6 +2384,318 @@ ExitPoint:
 
         }
 
+        public string[,] getMeanDeltasFromDB(string dbConnection, string projectTitle, string timeBlockStart, string timeBlockEnd, string[,] strSensorID)
+        {
+            var results = new List<string[]>();
+            int iCounter = 0;
+
+            while (iCounter < strSensorID.GetLength(0))
+            {
+                string pointName = strSensorID[iCounter, 0];
+                string pointID = strSensorID[iCounter, 1];
+
+                if (pointName == "NoMore")
+                    break;
+
+                var deltas = new List<(double dN, double dE, double dH, double dR, double dT)>();
+                int obsCount = 0;
+
+                if (pointID != "Missing")
+                {
+                    using (var conn = new SqlConnection(dbConnection))
+                    {
+                        conn.Open();
+
+                        string sql = @"
+        SELECT dN, dE, dH, dR, dT 
+        FROM dbo.TMTPosition_Terrestrial
+        WHERE SensorID = @SensorID
+          AND IsOutlier = 0
+          AND EndTimeUTC BETWEEN @StartTime AND @EndTime";
+
+                        using (var cmd = new SqlCommand(sql, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@SensorID", pointID);
+                            cmd.Parameters.AddWithValue("@StartTime", timeBlockStart.Replace("'", ""));
+                            cmd.Parameters.AddWithValue("@EndTime", timeBlockEnd.Replace("'", ""));
+
+                            using (var reader = cmd.ExecuteReader())
+                            {
+                                while (reader.Read())
+                                {
+                                    double dN = Convert.ToDouble(reader["dN"]);
+                                    double dE = Convert.ToDouble(reader["dE"]);
+                                    double dH = Convert.ToDouble(reader["dH"]);
+                                    double dR = Convert.ToDouble(reader["dR"]);
+                                    double dT = Convert.ToDouble(reader["dT"]);
+                                    deltas.Add((dN, dE, dH, dR, dT));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                double meandN = 0, meandE = 0, meandH = 0, meandR = 0, meandT = 0;
+                obsCount = deltas.Count;
+
+                if (pointID != "Missing" && obsCount > 0)
+                {
+                    // Iterative outlier rejection based on 3D distance
+                    bool changed;
+                    do
+                    {
+                        changed = false;
+
+                        // Compute 3D distances
+                        var distances = deltas.Select(d => Math.Sqrt(d.dN * d.dN + d.dE * d.dE + d.dH * d.dH)).ToList();
+                        double mean3D = distances.Average();
+                        double std3D = Math.Sqrt(distances.Average(d => Math.Pow(d - mean3D, 2)));
+
+                        // Filter out points > 3σ from the mean
+                        var filtered = deltas
+                            .Where((d, idx) => Math.Abs(distances[idx] - mean3D) <= 3 * std3D)
+                            .ToList();
+
+                        if (filtered.Count < deltas.Count)
+                        {
+                            deltas = filtered;
+                            changed = true;
+                        }
+                    }
+                    while (changed && deltas.Count > 2); // Keep at least 2 for a valid mean
+
+                    obsCount = deltas.Count;
+
+                    if (obsCount > 0)
+                    {
+                        meandN = Math.Round(deltas.Average(d => d.dN), 4);
+                        meandE = Math.Round(deltas.Average(d => d.dE), 4);
+                        meandH = Math.Round(deltas.Average(d => d.dH), 4);
+                        meandR = Math.Round(deltas.Average(d => d.dR), 4);
+                        meandT = Math.Round(deltas.Average(d => d.dT), 4);
+                    }
+                    else
+                    {
+                        obsCount = -99;
+                    }
+                }
+                else
+                {
+                    obsCount = -99;
+                }
+
+                results.Add(new string[]
+                {
+            pointName,
+            meandN.ToString(),
+            meandE.ToString(),
+            meandH.ToString(),
+            meandR.ToString(),
+            meandT.ToString(),
+            obsCount.ToString()
+                });
+
+                iCounter++;
+            }
+
+            results.Add(new string[] { "NoMore", "999", "999", "999", "999", "999", "0" });
+
+            int rowCount = results.Count;
+            int colCount = 7;
+            var strDeltas = new string[rowCount, colCount];
+
+            for (int row = 0; row < rowCount; row++)
+            {
+                for (int col = 0; col < colCount; col++)
+                {
+                    strDeltas[row, col] = results[row][col];
+                }
+            }
+
+            return strDeltas;
+        }
+
+
+        public string[,] getMeanDeltasFromDB_without_filtering(string dbConnection, string projectTitle, string timeBlockStart, string timeBlockEnd, string[,] strSensorID)
+        {
+            var results = new List<string[]>();
+            int iCounter = 0;
+
+            while (iCounter < strSensorID.GetLength(0))
+            {
+                string pointName = strSensorID[iCounter, 0];
+                string pointID = strSensorID[iCounter, 1];
+
+                if (pointName == "NoMore")
+                    break;
+
+                double meandN = 0, meandE = 0, meandH = 0, meandR = 0, meandT = 0;
+                int obsCount = 0;
+
+                if (pointID != "Missing")
+                {
+                    using (var conn = new SqlConnection(dbConnection))
+                    {
+                        conn.Open();
+
+                        string sql = @"
+        SELECT 
+            AVG(CAST(dN AS FLOAT)) AS MeanN,
+            AVG(CAST(dE AS FLOAT)) AS MeanE,
+            AVG(CAST(dH AS FLOAT)) AS MeanH,
+            AVG(CAST(dR AS FLOAT)) AS MeanR,
+            AVG(CAST(dT AS FLOAT)) AS MeanT,
+            COUNT(*) AS ObservationCount
+        FROM dbo.TMTPosition_Terrestrial
+        WHERE SensorID = @SensorID
+          AND IsOutlier = 0
+          AND EndTimeUTC BETWEEN @StartTime AND @EndTime";
+
+                        using (var cmd = new SqlCommand(sql, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@SensorID", pointID);
+                            cmd.Parameters.AddWithValue("@StartTime", timeBlockStart.Replace("'", ""));
+                            cmd.Parameters.AddWithValue("@EndTime", timeBlockEnd.Replace("'", ""));
+
+                            using (var reader = cmd.ExecuteReader())
+                            {
+                                if (reader.Read() && !reader.IsDBNull(5) && Convert.ToInt32(reader["ObservationCount"]) > 0)
+                                {
+                                    meandN = Math.Round(Convert.ToDouble(reader["MeanN"]), 4);
+                                    meandE = Math.Round(Convert.ToDouble(reader["MeanE"]), 4);
+                                    meandH = Math.Round(Convert.ToDouble(reader["MeanH"]), 4);
+                                    meandR = Math.Round(Convert.ToDouble(reader["MeanR"]), 4);
+                                    meandT = Math.Round(Convert.ToDouble(reader["MeanT"]), 4);
+                                    obsCount = Convert.ToInt32(reader["ObservationCount"]);
+                                }
+                                else
+                                {
+                                    obsCount = -99;
+                                }
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    obsCount = -99;
+                }
+
+                results.Add(new string[]
+                {
+            pointName,
+            meandN.ToString(),
+            meandE.ToString(),
+            meandH.ToString(),
+            meandR.ToString(),
+            meandT.ToString(),
+            obsCount.ToString()
+                });
+
+                iCounter++;
+            }
+
+            // Add terminator row
+            results.Add(new string[] { "NoMore", "999", "999", "999", "999", "999", "0" });
+
+            // Convert to fixed-size 2D array
+            int rowCount = results.Count;
+            int colCount = 7;
+            var strDeltas = new string[rowCount, colCount];
+
+            for (int row = 0; row < rowCount; row++)
+            {
+                for (int col = 0; col < colCount; col++)
+                {
+                    strDeltas[row, col] = results[row][col];
+                }
+            }
+
+            return strDeltas;
+        }
+
+
+        public string[,] getAllDeltasFromDB(string dbConnection, string projectTitle, string timeBlockStart, string timeBlockEnd, string[,] strSensorID)
+        {
+            string[,] strDeltas = new string[2000, 7];
+            int iCounter = 0;
+
+            while (iCounter < strSensorID.GetLength(0))
+            {
+                string pointName = strSensorID[iCounter, 0];
+                string pointID = strSensorID[iCounter, 1];
+
+                if (pointName == "NoMore")
+                    break;
+
+                double sumdN = 0, sumdE = 0, sumdH = 0, sumdR = 0, sumdT = 0;
+                int obsCount = 0;
+
+                if (pointID != "Missing")
+                {
+                    using SqlConnection conn = new(dbConnection);
+                    conn.Open();
+
+                    string sql = @"
+                SELECT dN, dE, dH, dR, dT 
+                FROM dbo.TMTPosition_Terrestrial
+                WHERE SensorID = @SensorID
+                  AND IsOutlier = 0
+                  AND EndTimeUTC BETWEEN @StartTime AND @EndTime";
+
+                    using SqlCommand cmd = new(sql, conn);
+                    cmd.Parameters.AddWithValue("@SensorID", pointID);
+                    cmd.Parameters.AddWithValue("@StartTime", timeBlockStart.Replace("'", ""));
+                    cmd.Parameters.AddWithValue("@EndTime", timeBlockEnd.Replace("'", ""));
+
+                    using SqlDataReader reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        sumdN += Math.Round(Convert.ToDouble(reader["dN"]), 4);
+                        sumdE += Math.Round(Convert.ToDouble(reader["dE"]), 4);
+                        sumdH += Math.Round(Convert.ToDouble(reader["dH"]), 4);
+                        sumdR += Math.Round(Convert.ToDouble(reader["dR"]), 4);
+                        sumdT += Math.Round(Convert.ToDouble(reader["dT"]), 4);
+                        obsCount++;
+                    }
+                }
+
+                // Compute means or assign fallback values
+                double meandN = 0, meandE = 0, meandH = 0, meandR = 0, meandT = 0;
+
+                if (pointID == "Missing")
+                {
+                    obsCount = -99; // flag for no data
+                }
+
+                // Assign results
+                strDeltas[iCounter, 0] = pointName;
+                strDeltas[iCounter, 1] = meandN.ToString();
+                strDeltas[iCounter, 2] = meandE.ToString();
+                strDeltas[iCounter, 3] = meandH.ToString();
+                strDeltas[iCounter, 4] = meandR.ToString();
+                strDeltas[iCounter, 5] = meandT.ToString();
+                strDeltas[iCounter, 6] = obsCount.ToString();
+
+                iCounter++;
+            }
+
+            // Add terminator entry
+            strDeltas[iCounter, 0] = "NoMore";
+            strDeltas[iCounter, 1] = "999";
+            strDeltas[iCounter, 2] = "999";
+            strDeltas[iCounter, 3] = "999";
+            strDeltas[iCounter, 4] = "999";
+            strDeltas[iCounter, 5] = "999";
+            strDeltas[iCounter, 6] = "0";
+
+            return strDeltas;
+        }
+
+
+
+
+
 
 
         //====[Put methods]============
@@ -3004,10 +2882,6 @@ ExitPoint:
             }
 
         }
-
-
-
-
 
 
         //===[ Geomos methods ]=====
@@ -3356,6 +3230,364 @@ NextPoint:
 
             return strDeltas;
         }
+
+
+        //======[ Unused methods ]=========
+
+
+        public string[,] getMeanDeltasFromDB_old_version(string dbConnection, string projectTitle, string timeBlockStart, string timeBlockEnd, string[,] strSensorID)
+        {
+            string[,] strDeltas = new string[2000, 7];
+            int iCounter = 0;
+
+            while (iCounter < strSensorID.GetLength(0))
+            {
+                string pointName = strSensorID[iCounter, 0];
+                string pointID = strSensorID[iCounter, 1];
+
+                if (pointName == "NoMore")
+                    break;
+
+                double sumdN = 0, sumdE = 0, sumdH = 0, sumdR = 0, sumdT = 0;
+                int obsCount = 0;
+
+                if (pointID != "Missing")
+                {
+                    using SqlConnection conn = new(dbConnection);
+                    conn.Open();
+
+                    string sql = @"
+                SELECT dN, dE, dH, dR, dT 
+                FROM dbo.TMTPosition_Terrestrial
+                WHERE SensorID = @SensorID
+                  AND IsOutlier = 0
+                  AND EndTimeUTC BETWEEN @StartTime AND @EndTime";
+
+                    using SqlCommand cmd = new(sql, conn);
+                    cmd.Parameters.AddWithValue("@SensorID", pointID);
+                    cmd.Parameters.AddWithValue("@StartTime", timeBlockStart.Replace("'", ""));
+                    cmd.Parameters.AddWithValue("@EndTime", timeBlockEnd.Replace("'", ""));
+
+                    using SqlDataReader reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        sumdN += Math.Round(Convert.ToDouble(reader["dN"]), 4);
+                        sumdE += Math.Round(Convert.ToDouble(reader["dE"]), 4);
+                        sumdH += Math.Round(Convert.ToDouble(reader["dH"]), 4);
+                        sumdR += Math.Round(Convert.ToDouble(reader["dR"]), 4);
+                        sumdT += Math.Round(Convert.ToDouble(reader["dT"]), 4);
+                        obsCount++;
+                    }
+                }
+
+                // Compute means or assign fallback values
+                double meandN = 0, meandE = 0, meandH = 0, meandR = 0, meandT = 0;
+
+                if (pointID != "Missing" && obsCount > 0)
+                {
+                    meandN = Math.Round(sumdN / obsCount, 4);
+                    meandE = Math.Round(sumdE / obsCount, 4);
+                    meandH = Math.Round(sumdH / obsCount, 4);
+                    meandR = Math.Round(sumdR / obsCount, 4);
+                    meandT = Math.Round(sumdT / obsCount, 4);
+                }
+                else
+                {
+                    obsCount = -99; // flag for no data
+                }
+
+                // Assign results
+                strDeltas[iCounter, 0] = pointName;
+                strDeltas[iCounter, 1] = meandN.ToString();
+                strDeltas[iCounter, 2] = meandE.ToString();
+                strDeltas[iCounter, 3] = meandH.ToString();
+                strDeltas[iCounter, 4] = meandR.ToString();
+                strDeltas[iCounter, 5] = meandT.ToString();
+                strDeltas[iCounter, 6] = obsCount.ToString();
+
+                iCounter++;
+            }
+
+            // Add terminator entry
+            strDeltas[iCounter, 0] = "NoMore";
+            strDeltas[iCounter, 1] = "999";
+            strDeltas[iCounter, 2] = "999";
+            strDeltas[iCounter, 3] = "999";
+            strDeltas[iCounter, 4] = "999";
+            strDeltas[iCounter, 5] = "999";
+            strDeltas[iCounter, 6] = "0";
+
+            return strDeltas;
+        }
+
+
+        public string[,] getLocationID_DO_NOT_USE(string strDBconnection, string strProjectID, string[] strPointNames)
+        {
+            //
+            // Purpose:
+            //      To extract the location ID from TMCLocation table: FAULT - must rewrite to exclude matching location name to sensor name
+            // Input:
+            //      Receives array of point names extracted from the workbook
+            // Output:
+            //      Returns array [PointName,LocationID]
+            // Useage:
+            //      string[,] strNamesID = gna.getLocationID(strDBconnection, strProjectTitle, strPointNames);
+            // Comment:
+            //      If missing then ID="Missing"
+            //      last point in list = "NoMore"
+            //
+
+            string[,] strPointID = new string[5000, 2];
+            string strPointName;
+            int iCounter = 0;
+
+            strPointName = strPointNames[iCounter];
+
+            using (SqlConnection conn = new(strDBconnection))
+            {
+                //instantiate and open connection
+                conn.Open();
+                do
+                {
+                    // define the SQL query
+                    string SQLaction = @"
+                    SELECT TMCLocation.ID  
+                    FROM dbo.TMCLocation 
+                    WHERE TMCLocation.Name = @Name
+                    AND TMCLocation.ProjectID = @ProjectID";
+
+                    SqlCommand cmd = new(SQLaction, conn);
+
+                    // define the parameter used in the command object and add to the command
+                    cmd.Parameters.Add(new SqlParameter("@Name", strPointName));
+                    cmd.Parameters.Add(new SqlParameter("@ProjectID", strProjectID));
+
+                    // Define the data reader
+                    SqlDataReader dataReader = cmd.ExecuteReader();
+
+                    // get the values
+                    // If the point exists, there will be a result. If not, then the point get marked missing
+
+                    if (dataReader.HasRows)
+                    {
+                        while (dataReader.Read())
+                        {
+                            int iLocationID = (Int32)dataReader["ID"];
+                            strPointID[iCounter, 0] = strPointName;
+                            strPointID[iCounter, 1] = Convert.ToString(iLocationID);
+                        }
+                    }
+                    else
+                    {
+                        strPointID[iCounter, 0] = strPointName;
+                        strPointID[iCounter, 1] = "Missing";
+                    }
+
+                    dataReader.Close();
+
+                    //Console.WriteLine("TMCLocation.ID:  " + iCounter+" " + strPointID[iCounter, 0]+ "  "  + strPointID[iCounter, 1]);
+
+                    iCounter++;
+                    strPointName = strPointNames[iCounter];
+
+                } while (strPointName != "NoMore");
+
+                conn.Dispose();
+                conn.Close();
+            }
+
+            strPointID[iCounter, 0] = "NoMore";
+            strPointID[iCounter, 1] = "0";
+
+            return strPointID;
+        }
+
+        public string[,] getMeanDeltasFromDB_original(string strDBconnection, string strProjectTitle, string strTimeBlockStart, string strTimeBlockEnd, string[,] strSensorID)
+        {
+            //
+            // Purpose:
+            //      To extract the mean dN,dE,dH,dR,dT from dbo.TMTPosition_Terrestrial table for the time block strTimeBlockStart to strTimeBlockEnd
+            // Input:
+            //      Receives 
+            //          array of point names & sensorID generated by getSensorIDfromDB() or readPointNamesSensorID(from Reference worksheet)
+            //          the Project Title from the config file
+            //          the start and end time blocks
+            // Output:
+            //      Returns array [PointName,dN,dE,dH, dR, dT, number of points used to compute mean]   [0,1,2,3,4,5,6]
+            //      strPointDeltas[iCounter, 0] = strPointName;
+            //      strPointDeltas[iCounter, 1] = MeandN
+            //      strPointDeltas[iCounter, 2] = MeandE
+            //      strPointDeltas[iCounter, 3] = MeandH
+            //      strPointDeltas[iCounter, 4] = MeandR
+            //      strPointDeltas[iCounter, 5] = MeandT
+            //      strPointDeltas[iCounter, 6] = ObservationCounter = "-99" id there are no observations
+            //
+            //
+            //
+            // Useage:
+            //      string[,] strPointDeltas = gna.getPointDeltas(strDBconnection, strProjectTitle, strTimeBlockStart, strTimeBlockEnd, strSensorID);
+            // Comment:
+            //      If missing then deltas are 0,0,0,-99
+            //      last point in list = "NoMore"
+            //
+
+            string[,] strDeltas = new string[2000, 7];
+            string strPointName;
+            string strPointID;
+            int iCounter = 0;
+            double dbldN;
+            double dbldE;
+            double dbldH;
+            double dbldR;
+            double dbldT;
+            double dblMeandN = 0.0;
+            double dblMeandE = 0.0;
+            double dblMeandH = 0.0;
+            double dblMeandR = 0.0;
+            double dblMeandT = 0.0;
+            int iObservationCounter = 0;
+
+            // Select the block of observations for the point within the Time Block: between strRefBlockStart and strRefBlockEnd
+            // generate the mean dN, dE, dH, dR, dT
+
+            do
+            {
+                strPointName = strSensorID[iCounter, 0];
+                strPointID = strSensorID[iCounter, 1];
+
+
+                //Console.WriteLine(strPointName + " " + strPointID);
+
+                //instantiate and open connection
+                SqlConnection conn = new(strDBconnection);
+                conn.Open();
+
+                if (strPointID == "Missing")
+                {
+                    goto ComputeMeans;
+                }
+
+                // define the SQL query
+                string SQLaction = @"
+                SELECT * FROM dbo.TMTPosition_Terrestrial  
+                WHERE SensorID = @SensorID 
+                AND IsOutlier = 0 
+                AND EndTimeUTC BETWEEN " + strTimeBlockStart +
+                " AND " + strTimeBlockEnd;
+
+
+                //Console.WriteLine(SQLaction);
+
+
+
+                //string strTemp = SQLaction;
+                SqlCommand cmd = new(SQLaction, conn);
+
+                // define the parameter used in the command object and add to the command
+                cmd.Parameters.Add(new SqlParameter("@SensorID", strPointID));
+
+                // Define the data reader
+                SqlDataReader dataReader = cmd.ExecuteReader();
+
+                // Now read through the results and generate a mean value
+                dblMeandN = 0.0;
+                dblMeandE = 0.0;
+                dblMeandH = 0.0;
+                dblMeandR = 0.0;
+                dblMeandT = 0.0;
+
+                iObservationCounter = 0;
+
+                if (dataReader.HasRows)
+                {
+                    while (dataReader.Read())
+                    {
+                        dbldN = Math.Round(Convert.ToDouble(dataReader["dN"]), 4);
+                        dbldE = Math.Round(Convert.ToDouble(dataReader["dE"]), 4);
+                        dbldH = Math.Round(Convert.ToDouble(dataReader["dH"]), 4);
+                        dbldR = Math.Round(Convert.ToDouble(dataReader["dR"]), 4);
+                        dbldT = Math.Round(Convert.ToDouble(dataReader["dT"]), 4);
+
+                        //Console.WriteLine(Convert.ToString(dbldN) + "  " + Convert.ToString(dbldE) + "  " + Convert.ToString(dbldH));
+
+                        dblMeandN += dbldN;
+                        dblMeandE += dbldE;
+                        dblMeandH += dbldH;
+                        dblMeandR += dbldR;
+                        dblMeandT += dbldT;
+                        iObservationCounter++;
+                    }
+                }
+                else
+                {
+                    dblMeandN = 0.0;
+                    dblMeandE = 0.0;
+                    dblMeandH = 0.0;
+                    dblMeandR = 0.0;
+                    dblMeandT = 0.0;
+                    iObservationCounter = -99;
+                    strSensorID[iCounter, 0] = strPointName;
+                    strSensorID[iCounter, 1] = "No Readings";
+                    goto NextPoint;
+                }
+
+ComputeMeans:
+
+                if ((strPointID != "Missing") && (iObservationCounter > 0))
+                {
+                    // Compute the mean dN, dE, dH
+                    dblMeandN = Math.Round(dblMeandN / iObservationCounter, 4);
+                    dblMeandE = Math.Round(dblMeandE / iObservationCounter, 4);
+                    dblMeandH = Math.Round(dblMeandH / iObservationCounter, 4);
+                    dblMeandR = Math.Round(dblMeandR / iObservationCounter, 4);
+                    dblMeandT = Math.Round(dblMeandT / iObservationCounter, 4);
+                }
+                else
+                {
+                    // allocate false values
+                    dblMeandN = 0.0;
+                    dblMeandE = 0.0;
+                    dblMeandH = 0.0;
+                    dblMeandR = 0.0;
+                    dblMeandT = 0.0;
+                    iObservationCounter = -99;
+                }
+
+                //Console.WriteLine("Mean");
+                //Console.WriteLine(Convert.ToString(dblMeandN) + "  " + Convert.ToString(dblMeandE) + "  " + Convert.ToString(dblMeandH));
+
+
+                //Insert the data into the data arrays
+                strDeltas[iCounter, 0] = strPointName;
+                strDeltas[iCounter, 1] = Convert.ToString(dblMeandN);
+                strDeltas[iCounter, 2] = Convert.ToString(dblMeandE);
+                strDeltas[iCounter, 3] = Convert.ToString(dblMeandH);
+                strDeltas[iCounter, 4] = Convert.ToString(dblMeandR);
+                strDeltas[iCounter, 5] = Convert.ToString(dblMeandT);
+                strDeltas[iCounter, 6] = Convert.ToString(iObservationCounter);
+NextPoint:
+
+// Close the DB connection
+                conn.Dispose();
+                conn.Close();
+
+                iCounter++;
+                strPointName = strSensorID[iCounter, 0];
+
+            } while (strPointName != "NoMore");
+
+            strDeltas[iCounter, 0] = "NoMore";
+            strDeltas[iCounter, 1] = "999";
+            strDeltas[iCounter, 2] = "999";
+            strDeltas[iCounter, 3] = "999";
+            strDeltas[iCounter, 4] = "999";
+            strDeltas[iCounter, 5] = "999";
+            strDeltas[iCounter, 6] = "0";
+
+            return strDeltas;
+        }
+
+
 
     }
 }
