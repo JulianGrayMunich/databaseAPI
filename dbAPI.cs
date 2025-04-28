@@ -1,7 +1,6 @@
 ﻿using System.Globalization;
 using System.Data;
 using Microsoft.Data.SqlClient;
-
 using GNAsurveytools;
 using gnaDataClasses;
 
@@ -27,46 +26,16 @@ namespace databaseAPI
         string strTab2 = "        ";
         public void testDBconnection(string connectionString)
         {
-            // 
-            // Purpose
-            //  To test a DB Connection
-            // Useage
-            //  dbAPI gnaDBAPI = new dbAPI();
-            //  gnaDBAPI.testDBconnection(strDBconnection);
-            // Output
-            //  Successful or Failed with error message
-            //
-            // If you suddenly start having failed connections, check that the versions of the SQL packages match
-            // between dbAPI and the calling software
-            // If they dont, then update so that they both match
-            //
-            //instantiate and open connection
-
-            //======================================
-
-            //try
-            //{
-            //    //sql connection object
-            //    using SqlConnection conn = new(strDBconnection);
-            //    conn.Open();
-            //    Console.WriteLine("     DB Connection Successful");
-            //    conn.Dispose();
-            //    conn.Close();
-            //}
-            //catch (SqlException ex)
-            //{
-            //    Console.WriteLine("        DB connection failed: \n        " + ex.Message + "\n");
-            //}
 
             try
             {
                 using var conn = new SqlConnection(connectionString);
                 conn.Open();
-                Console.WriteLine(strTab1+"DB Connection Successful");
+                Console.WriteLine(strTab2+"DB Connection Successful");
             }
             catch (SqlException ex)
             {
-                Console.WriteLine(strTab1+$"DB connection failed:\n        {ex.Message}\n");
+                Console.WriteLine(strTab2+$"DB connection failed:\n        {ex.Message}\n");
             }
 
         }
