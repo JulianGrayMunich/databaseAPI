@@ -1019,12 +1019,16 @@ ExitPoint:
                         cmd.Parameters.Add(new SqlParameter("@startTime", SqlDbType.NVarChar) { Value = strTimeBlockStart });
                         cmd.Parameters.Add(new SqlParameter("@endTime", SqlDbType.NVarChar) { Value = strTimeBlockEnd });
 
-                        using (SqlDataReader dataReader = cmd.ExecuteReader())
+                        using (var dataReader = cmd.ExecuteReader())
                         {
                             while (dataReader.Read())
                             {
-                                dblAverageDistance += Convert.ToDouble(dataReader["RawDistance"]);
-                                intDistanceCounter++;
+                                var rawDistanceValue = dataReader["RawDistance"].ToString();
+                                if (!string.Equals(rawDistanceValue, "Missing", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    dblAverageDistance += Convert.ToDouble(rawDistanceValue);
+                                    intDistanceCounter++;
+                                }
                             }
                         }
                     }
