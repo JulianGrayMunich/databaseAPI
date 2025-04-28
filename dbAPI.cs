@@ -1,6 +1,6 @@
 ﻿using System.Globalization;
 using System.Data;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 
 using GNAsurveytools;
 using gnaDataClasses;
@@ -25,7 +25,7 @@ namespace databaseAPI
 
         string strTab1 = "     ";
         string strTab2 = "        ";
-        public void testDBconnection(string strDBconnection)
+        public void testDBconnection(string connectionString)
         {
             // 
             // Purpose
@@ -44,19 +44,31 @@ namespace databaseAPI
 
             //======================================
 
+            //try
+            //{
+            //    //sql connection object
+            //    using SqlConnection conn = new(strDBconnection);
+            //    conn.Open();
+            //    Console.WriteLine("     DB Connection Successful");
+            //    conn.Dispose();
+            //    conn.Close();
+            //}
+            //catch (SqlException ex)
+            //{
+            //    Console.WriteLine("        DB connection failed: \n        " + ex.Message + "\n");
+            //}
+
             try
             {
-                //sql connection object
-                using SqlConnection conn = new(strDBconnection);
+                using var conn = new SqlConnection(connectionString);
                 conn.Open();
-                Console.WriteLine("     DB Connection Successful");
-                conn.Dispose();
-                conn.Close();
+                Console.WriteLine(strTab1+"DB Connection Successful");
             }
             catch (SqlException ex)
             {
-                Console.WriteLine("        DB connection failed: \n        " + ex.Message + "\n");
+                Console.WriteLine(strTab1+$"DB connection failed:\n        {ex.Message}\n");
             }
+
         }
 
         //=== working
@@ -92,7 +104,7 @@ namespace databaseAPI
                 cmd.ExecuteNonQuery();
             }
 
-            catch (System.Data.SqlClient.SqlException ex)
+            catch (SqlException ex)
             {
                 Console.WriteLine("clearTable: DB connection failed : ");
                 Console.WriteLine(ex);
@@ -120,11 +132,6 @@ namespace databaseAPI
         //
 
         {
-            double E, N, H;
-            double ToRmean = 0.0;
-            string strBlockStartDate = "";
-            string strBlockEndDate = "";
-            string strCurrentDate = "";
             string strPreviousDate = "";
             string strPreviousMeanDate = "";
             DateTime dtTimeBlockStart, dtTimeBlockEnd, dtPrismDate;
@@ -810,7 +817,7 @@ ExitPoint:
 
             }
 
-            catch (System.Data.SqlClient.SqlException ex)
+            catch (SqlException ex)
             {
                 Console.WriteLine("getRailBracket failed: ");
                 Console.WriteLine(ex);
@@ -869,7 +876,7 @@ ExitPoint:
 
             }
 
-            catch (System.Data.SqlClient.SqlException ex)
+            catch (SqlException ex)
             {
                 Console.WriteLine("getLongNameID failed: ");
                 Console.WriteLine(ex);
@@ -1139,7 +1146,7 @@ ExitPoint:
         //        // Close the dataReader
         //        dataReader?.Close();
         //    }
-        //    catch (System.Data.SqlClient.SqlException ex)
+        //    catch (SqlException ex)
         //    {
         //        Console.WriteLine("extractAverageDistance: DB Connection Failed: ");
         //        Console.WriteLine(ex);
@@ -1221,7 +1228,7 @@ ExitPoint:
 
                 }
 
-                catch (System.Data.SqlClient.SqlException ex)
+                catch (SqlException ex)
                 {
                     Console.WriteLine("getPointCoordinates: DB Connection Failed when retrieving Project ID => Project name not correct : ");
                     Console.WriteLine(ex);
@@ -2755,7 +2762,7 @@ ExitPoint:
                 } while (strName != "NoMore");
             }
 
-            catch (System.Data.SqlClient.SqlException ex)
+            catch (SqlException ex)
 
             {
                 Console.WriteLine("putFixedData failed : ");
@@ -2813,7 +2820,7 @@ ExitPoint:
                 } while (i < iNoOfResults);
             }
 
-            catch (System.Data.SqlClient.SqlException ex)
+            catch (SqlException ex)
 
             {
                 Console.WriteLine("putObservations failed : ");
@@ -2871,7 +2878,7 @@ ExitPoint:
                 } while (j < maxIndex);
             }
 
-            catch (System.Data.SqlClient.SqlException ex)
+            catch (SqlException ex)
 
             {
                 Console.WriteLine("putMeanObsinMeanObservationsTable failed : ");
@@ -2943,7 +2950,7 @@ ExitPoint:
 
                 }
 
-                catch (System.Data.SqlClient.SqlException ex)
+                catch (SqlException ex)
                 {
                     Console.WriteLine("getGeomosProjectID: DB Connection Failed when retrieving Project ID => Project name not correct : ");
                     Console.WriteLine(ex);
