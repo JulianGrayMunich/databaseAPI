@@ -752,6 +752,10 @@ ExitPoint:
 
         public List<Observation> getMeanCoordinates(string strDBconnection, string strPrismName, double Eprev, double Nprev, double Hprev, double Eref, double Nref, double Href, string strStart, string strTimeBlockStart, string strBlockSizeDays, string strLastBlockEndDate)
         {
+
+            // outlier filter
+            double dblOutlierFilter = 0.020;
+
             string strPreviousDate = "";
             string strPreviousMeanDate = "";
             DateTime dtTimeBlockStart, dtTimeBlockEnd, dtPrismDate;
@@ -778,30 +782,48 @@ ExitPoint:
                     string strCurrentTime = "";
                     string strPreviousTime = "2000-01-01 00:00:00";
 
+                    // Write the observations to the prismObs list 
                     while (dataReader.Read())
                     {
+                        
+                        // Removes duplicates and outliers
                         strCurrentTime = ((DateTime)dataReader["EndTimeUTC"]).ToString("yyyy-MM-dd HH:mm:ss"); // 24-hour format
+
 
                         if (strCurrentTime != strPreviousTime)
                         {
-                            prismObs.Add(new Observation()
+                            double dblE = Math.Round((double)dataReader["E"],4);
+                            double dblN = Math.Round((double)dataReader["N"],4);
+                            double dblH= Math.Round((double)dataReader["H"],4);
+                            double dE = Math.Abs(dblE - Eref);
+                            double dN = Math.Abs(dblN - Nref);
+                            double dH = Math.Abs(dblH - Href);
+
+
+                            if ((dE< dblOutlierFilter) && (dN < dblOutlierFilter) && (dH < dblOutlierFilter) )   
                             {
-                                Name = strPrismName,
-                                railBracket = (string)dataReader["railBracket"],
-                                E = (double)dataReader["E"],
-                                N = (double)dataReader["N"],
-                                H = (double)dataReader["H"],
-                                UTCtime = ((DateTime)dataReader["EndTimeUTC"]).ToString("yyyy-MM-dd 00:00:00")
-                            });
+                                prismObs.Add(new Observation()
+                                {
+                                    Name = strPrismName,
+                                    railBracket = (string)dataReader["railBracket"],
+                                    E = dblE,
+                                    N = dblN,
+                                    H = dblH,
+                                    UTCtime = ((DateTime)dataReader["EndTimeUTC"]).ToString("yyyy-MM-dd 00:00:00")
+                                });
+                            }
+
                         }
                         strPreviousTime = strCurrentTime;
                         iIndex++;
                     }
                     dataReader?.Close();
 
+                    // Verify that there were readings
+
                     if (prismObs.Count < 1)
                     {
-                        Console.WriteLine("        " + strPrismName + " (EMPTY NO OBS)");
+                        Console.WriteLine("          " + strPrismName + " (EMPTY NO OBS)");
                         meanPrismObs.Add(new Observation()
                         {
                             Name = "Empty"
@@ -812,18 +834,19 @@ ExitPoint:
                     }
                     else
                     {
-                        Console.WriteLine("        " + strPrismName + " " + prismObs.Count + " obs");
+                        Console.WriteLine("          " + strPrismName + " " + prismObs.Count + " obs");
                     }
 
-                    double Esum = 0.0, Nsum = 0.0, Hsum = 0.0;
-                    double Emean = 0.0, Nmean = 0.0, Hmean = 0.0;
-                    int iBlockCounter = 0;
-                    string strComputedMeanFlag = "No";
 
-                    double dblTimeBlockSizeDays = Math.Round(Convert.ToDouble(strBlockSizeDays) - 0.9, 1);
+
+
+
+                    //double dblTimeBlockSizeDays = Math.Round(Convert.ToDouble(strBlockSizeDays) - 0.9, 1);
+                    double dblTimeBlockSizeDays = Math.Round(Convert.ToDouble(strBlockSizeDays) - 0.000694, 1); // reduce by 1 minute
                     dtTimeBlockStart = DateTime.Parse(strTimeBlockStart, CultureInfo.InvariantCulture);
-                    dtTimeBlockEnd = dtTimeBlockStart.AddDays(dblTimeBlockSizeDays);
+                    dtTimeBlockEnd = dtTimeBlockStart.AddDays(dblTimeBlockSizeDays+0.000694); // add the minute back
                     string strTimeBlockEnd = dtTimeBlockEnd.ToString("yyyy-MM-dd 23:59:59");
+                    dtTimeBlockEnd = DateTime.Parse(strTimeBlockEnd, CultureInfo.InvariantCulture);
 
                     string strMeanDate = strTimeBlockStart;
                     strPreviousDate = strTimeBlockStart;
@@ -832,6 +855,15 @@ ExitPoint:
                     int iNoOfObs = prismObs.Count;
                     int iObsCounter = 0;
 
+                    // Reset the summation and mean variables
+                    double Esum = 0.0, Nsum = 0.0, Hsum = 0.0;
+                    double Emean = 0.0, Nmean = 0.0, Hmean = 0.0;
+                    int iBlockCounter = 0;
+                    string strComputedMeanFlag = "No";
+
+
+
+                    // Compute the means for each time block
                     do
                     {
                         string strPrismDate = prismObs[iObsCounter].UTCtime;
@@ -845,7 +877,6 @@ ExitPoint:
                             Emean += prismObs[iObsCounter].E;
                             Nmean += prismObs[iObsCounter].N;
                             Hmean += prismObs[iObsCounter].H;
-                            iObsCounter++;
                         }
                         else if (dtPrismDate > dtTimeBlockEnd)
                         {
@@ -879,6 +910,10 @@ ExitPoint:
                             strTimeBlockEnd = dtTimeBlockEnd.ToString("yyyy-MM-dd 23:59:59");
                             strMeanDate = strTimeBlockStart;
                         }
+
+
+                        iObsCounter++; // Next reading
+
                     } while (iObsCounter < iNoOfObs);
 
                     // Flush final block if any remaining
@@ -1968,128 +2003,165 @@ Exit:
             return strSensorID;
         }
 
+
         public string[,] getLatestDeltasFromDB(string strDBconnection, string strProjectTitle, string strTimeBlockStart, string strTimeBlockEnd, string[,] strSensorID)
         {
-            //
-            // Purpose:
-            //      To extract the mean dN,dE,dH,dR,dT from dbo.TMTPosition_Terrestrial table for the time block strTimeBlockStart to strTimeBlockEnd
-            // Input:
-            //      Receives 
-            //          array of point names & sensorID generated by getSensorIDfromDB() or readPointNamesSensorID(from Reference worksheet)
-            //          the Project Title from the config file
-            //          the start and end time blocks
-            // Output:
-            //      Returns array [PointName,dN,dE,dH, dR, dT, number of points used to compute mean]   [0,1,2,3,4,5,6]
-            //      strPointDeltas[iCounter, 0] = strPointName;
-            //      strPointDeltas[iCounter, 1] = latestdN
-            //      strPointDeltas[iCounter, 2] = latestdE
-            //      strPointDeltas[iCounter, 3] = latestdH
-            //      strPointDeltas[iCounter, 4] = blank
-            //      strPointDeltas[iCounter, 5] = latestObservationTime
-            //      strPointDeltas[iCounter, 6] = ObservationCounter = "-99" id there are no observations
-            // Useage:
-            //      string[,] strPointDeltas = gna.getPointDeltas(strDBconnection, strProjectTitle, strTimeBlockStart, strTimeBlockEnd, strSensorID);
-            // Comment:
-            //      If missing then deltas are 0,0,0,-99
-            //      last point in list = "NoMore"
-            //
+            // Returns: [PointName, dN, dE, dH, "blank", latestObservationUTC, ObservationCounter]
+            // Note: SQL text and query logic preserved exactly.
+
+            // --- Basic input validation ---
+            if (strSensorID == null)
+                throw new ArgumentNullException(nameof(strSensorID), "Sensor list cannot be null.");
+
+            // Normalize and validate time bounds once (adds :00 if seconds missing).
+            strTimeBlockStart = (strTimeBlockStart ?? string.Empty).Trim().Replace("'", "");
+            if (strTimeBlockStart.Length == 16) strTimeBlockStart += ":00"; // yyyy-MM-dd HH:mm -> add seconds
+            DateTime dtStart;
+            if (!DateTime.TryParseExact(strTimeBlockStart, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out dtStart))
+                throw new FormatException("strTimeBlockStart must be in format yyyy-MM-dd HH:mm[:ss].");
+
+            strTimeBlockEnd = (strTimeBlockEnd ?? string.Empty).Trim().Replace("'", "");
+            if (strTimeBlockEnd.Length == 16) strTimeBlockEnd += ":00";
+            DateTime dtEnd;
+            if (!DateTime.TryParseExact(strTimeBlockEnd, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out dtEnd))
+                throw new FormatException("strTimeBlockEnd must be in format yyyy-MM-dd HH:mm[:ss].");
+
+            // Re-wrap in single quotes for SQL literal usage (keeps your original approach).
+            strTimeBlockStart = $"'{dtStart:yyyy-MM-dd HH:mm:ss}'";
+            strTimeBlockEnd = $"'{dtEnd:yyyy-MM-dd HH:mm:ss}'";
 
             string[,] strDeltas = new string[2000, 7];
-            string strPointName;
-            string strPointID;
+
             int iCounter = 0;
-            double dblLatestdN = 0.0;
-            double dblLatestdE = 0.0;
-            double dblLatestdH = 0.0;
-            int iObservationCounter;
-            string strLatestObservationUTC;
-
-            // Select the block of observations for the point within the Time Block: between strRefBlockStart and strRefBlockEnd
-            // generate the mean dN, dE, dH, dR, dT
-
-            do
+            while (true)
             {
-                strPointName = strSensorID[iCounter, 0];
-                strPointID = strSensorID[iCounter, 1];
+                // Guard against out-of-range indexing (in case "NoMore" sentinel is missing).
+                if (iCounter >= strDeltas.GetLength(0))
+                    throw new IndexOutOfRangeException("Result buffer exceeded while scanning sensors. Ensure 'NoMore' sentinel is present and size is sufficient.");
 
-
-                //Console.WriteLine(strPointName + " " + strPointID);
-
-                //instantiate and open connection
-                SqlConnection conn = new(strDBconnection);
-                conn.Open();
-
-                if (strPointID == "Missing")
+                // Defensive fetch of current sensor row
+                string strPointName;
+                string strPointID;
+                try
                 {
-                    strLatestObservationUTC = "Missing";
-                    iObservationCounter = 0;
-                    goto PrepareData;
-
+                    strPointName = strSensorID[iCounter, 0];
+                    strPointID = strSensorID[iCounter, 1];
                 }
-                // define the SQL query
-                string SQLaction = @"
+                catch (Exception ex)
+                {
+                    throw new ArgumentException("Invalid strSensorID array shape or index.", ex);
+                }
+
+                if (string.Equals(strPointName, "NoMore", StringComparison.Ordinal))
+                    break; // reached sentinel
+
+                double dblLatestdN = 0.0;
+                double dblLatestdE = 0.0;
+                double dblLatestdH = 0.0;
+                int iObservationCounter;
+                string strLatestObservationUTC;
+
+                // DB objects
+                SqlConnection conn = null;
+                SqlCommand cmd = null;
+                SqlDataReader dataReader = null;
+
+                try
+                {
+                    // Instantiate and open connection (keeps your declaration style)
+                    conn = new SqlConnection(strDBconnection);
+                    conn.Open();
+
+                    if (string.Equals(strPointID, "Missing", StringComparison.Ordinal))
+                    {
+                        strLatestObservationUTC = "Missing";
+                        iObservationCounter = 0;
+                        goto PrepareData;
+                    }
+
+                    // --- SQL (unchanged) ---
+                    string SQLaction = @"
                 SELECT * FROM dbo.TMTPosition_Terrestrial  
                 WHERE SensorID = @SensorID 
                 AND IsOutlier = 0 
                 AND EndTimeUTC BETWEEN " + strTimeBlockStart +
-                " AND " + strTimeBlockEnd +
-                " ORDER BY EndTimeUTC DESC";
+                        " AND " + strTimeBlockEnd +
+                        " ORDER BY EndTimeUTC DESC";
 
-                //string strTemp = SQLaction;
-                SqlCommand cmd = new(SQLaction, conn);
+                    cmd = new SqlCommand(SQLaction, conn);
+                    cmd.Parameters.Add(new SqlParameter("@SensorID", strPointID ?? (object)DBNull.Value));
 
-                // define the parameter used in the command object and add to the command
-                cmd.Parameters.Add(new SqlParameter("@SensorID", strPointID));
+                    dataReader = cmd.ExecuteReader();
 
-                // Define the data reader
-                SqlDataReader dataReader = cmd.ExecuteReader();
+                    if (!dataReader.Read())
+                    {
+                        strLatestObservationUTC = "Missing";
+                        iObservationCounter = -99;
+                        dblLatestdN = 0;
+                        dblLatestdE = 0;
+                        dblLatestdH = 0;
+                        goto PrepareData;
+                    }
+                    else
+                    {
+                        // Safe conversions with DBNull handling; round to 4 dp
+                        dblLatestdN = Math.Round(dataReader.IsDBNull(dataReader.GetOrdinal("dN")) ? 0.0 : Convert.ToDouble(dataReader["dN"], CultureInfo.InvariantCulture), 4);
+                        dblLatestdE = Math.Round(dataReader.IsDBNull(dataReader.GetOrdinal("dE")) ? 0.0 : Convert.ToDouble(dataReader["dE"], CultureInfo.InvariantCulture), 4);
+                        dblLatestdH = Math.Round(dataReader.IsDBNull(dataReader.GetOrdinal("dH")) ? 0.0 : Convert.ToDouble(dataReader["dH"], CultureInfo.InvariantCulture), 4);
 
+                        // Enforce full timestamp with seconds (per your rule)
+                        if (!dataReader.IsDBNull(dataReader.GetOrdinal("EndTimeUTC")))
+                        {
+                            var dt = (DateTime)dataReader["EndTimeUTC"];
+                            strLatestObservationUTC = dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                        }
+                        else
+                        {
+                            strLatestObservationUTC = "Missing";
+                        }
 
-
-                if (!dataReader.Read())
+                        iObservationCounter = 1;
+                    }
+                }
+                catch
                 {
+                    // On any DB/parse error, fall back to "Missing"/-99 and zero deltas
                     strLatestObservationUTC = "Missing";
-                    iObservationCounter = 0;
-                    goto PrepareData;
+                    iObservationCounter = -99;
+                    dblLatestdN = 0;
+                    dblLatestdE = 0;
+                    dblLatestdH = 0;
                 }
-                else
+                finally
                 {
-                    //strLatestObservationUTC = ((DateTime)dataReader["EndTimeUTC"]).ToString("dd/MM/yyyy HH:mm:ss");
-                    dblLatestdN = Math.Round(Convert.ToDouble(dataReader["dN"]), 4);
-                    dblLatestdE = Math.Round(Convert.ToDouble(dataReader["dE"]), 4);
-                    dblLatestdH = Math.Round(Convert.ToDouble(dataReader["dH"]), 4);
-                    strLatestObservationUTC = ((DateTime)dataReader["EndTimeUTC"]).ToString("yyyy-MM-dd HH:mm");
-                    iObservationCounter = 1;
+                    // Dispose in safe order
+                    if (dataReader != null)
+                    {
+                        if (!dataReader.IsClosed) dataReader.Close();
+                        dataReader.Dispose();
+                    }
+                    if (cmd != null) cmd.Dispose();
+                    if (conn != null)
+                    {
+                        if (conn.State != System.Data.ConnectionState.Closed) conn.Close();
+                        conn.Dispose();
+                    }
                 }
-
-                dataReader.Close();
 
 PrepareData:
-
-//Insert the data into the data arrays
+// Insert row
                 strDeltas[iCounter, 0] = strPointName;
-                strDeltas[iCounter, 1] = Convert.ToString(dblLatestdN);
-                strDeltas[iCounter, 2] = Convert.ToString(dblLatestdE);
-                strDeltas[iCounter, 3] = Convert.ToString(dblLatestdH);
+                strDeltas[iCounter, 1] = Convert.ToString(dblLatestdN, CultureInfo.InvariantCulture);
+                strDeltas[iCounter, 2] = Convert.ToString(dblLatestdE, CultureInfo.InvariantCulture);
+                strDeltas[iCounter, 3] = Convert.ToString(dblLatestdH, CultureInfo.InvariantCulture);
                 strDeltas[iCounter, 4] = "blank";
-                strDeltas[iCounter, 5] = strLatestObservationUTC;
-                strDeltas[iCounter, 6] = Convert.ToString(iObservationCounter);
-
-
-                //Console.WriteLine(strDeltas[iCounter, 0]+"  "+ strDeltas[iCounter, 5] + "  " + strDeltas[iCounter, 6]);
-
-
-
-
-                // Close the DB connection
-                conn.Dispose();
-                conn.Close();
+                strDeltas[iCounter, 5] = strLatestObservationUTC;          // "yyyy-MM-dd HH:mm:ss" or "Missing"
+                strDeltas[iCounter, 6] = Convert.ToString(iObservationCounter, CultureInfo.InvariantCulture);
 
                 iCounter++;
-                strPointName = strSensorID[iCounter, 0];
+            }
 
-            } while (strPointName != "NoMore");
-
+            // Sentinel trailer
             strDeltas[iCounter, 0] = "NoMore";
             strDeltas[iCounter, 1] = "999";
             strDeltas[iCounter, 2] = "999";
@@ -2100,6 +2172,7 @@ PrepareData:
 
             return strDeltas;
         }
+
 
 
         public string[,] getSensorIDfromdataAnalysisDB(string strDBconnection, string strpointNamesTable)
@@ -2656,10 +2729,10 @@ ExitPoint:
                                     double dR = Convert.ToDouble(reader["dR"]);
                                     double dT = Convert.ToDouble(reader["dT"]);
 
-                                    // Check for outliers based on the outlier limit
-                                    if (Math.Abs(dN) <= dblOutlier || Math.Abs(dE) <= dblOutlier || Math.Abs(dH) <= dblOutlier)
+                                    if (Math.Abs(dE) < dblOutlier &&
+                                        Math.Abs(dN) < dblOutlier &&
+                                        Math.Abs(dH) < dblOutlier)
                                     {
-                                        // Only add deltas that are within the outlier threshold
                                         deltas.Add((dN, dE, dH, dR, dT));
                                     }
 
@@ -2674,32 +2747,7 @@ ExitPoint:
 
                 if (pointID != "Missing" && obsCount > 0)
                 {
-                    // Iterative outlier rejection based on 3D distance
-                    bool changed;
-                    do
-                    {
-                        changed = false;
-
-                        // Compute 3D distances
-                        var distances = deltas.Select(d => Math.Sqrt(d.dN * d.dN + d.dE * d.dE + d.dH * d.dH)).ToList();
-                        double mean3D = distances.Average();
-                        double std3D = Math.Sqrt(distances.Average(d => Math.Pow(d - mean3D, 2)));
-
-                        // Filter out points > 3σ from the mean
-                        var filtered = deltas
-                            .Where((d, idx) => Math.Abs(distances[idx] - mean3D) <= 3 * std3D)
-                            .ToList();
-
-                        if (filtered.Count < deltas.Count)
-                        {
-                            deltas = filtered;
-                            changed = true;
-                        }
-                    }
-                    while (changed && deltas.Count > 2); // Keep at least 2 for a valid mean
-
-                    obsCount = deltas.Count;
-
+                   
                     if (obsCount > 0)
                     {
                         meandN = Math.Round(deltas.Average(d => d.dN), 4);
