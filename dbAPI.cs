@@ -46,6 +46,54 @@ namespace databaseAPI
 
         //====[Maintenance methods]===
 
+
+        public List<SensorInfo> retrieveIsSensorRead(string strDBconnection, List<SensorInfo> sensorList, string strTimeBlockStartUTC, string strTimeBlockEndUTC)
+        {
+            try
+            {
+                using (var conn = new SqlConnection(strDBconnection))
+                {
+                    conn.Open();
+
+                    foreach (var sensor in sensorList)
+                    {
+                        int readCount = 0;
+
+                        // SQL statement (kept intact as instructed)
+                        string SQLaction = @"
+SELECT * FROM dbo.TMTPosition_Terrestrial  
+WHERE SensorID = @SensorID 
+AND IsOutlier = 0 
+AND EndTimeUTC BETWEEN " + strTimeBlockStartUTC + " AND " + strTimeBlockEndUTC;
+
+                        using (var cmd = new SqlCommand(SQLaction, conn))
+                        {
+                            cmd.Parameters.Add(new SqlParameter("@SensorID", sensor.SensorID));
+
+                            using (var dataReader = cmd.ExecuteReader())
+                            {
+                                while (dataReader.Read())
+                                {
+                                    readCount++;
+                                }
+                            }
+                        }
+
+                        // Update the Read property
+                        sensor.Read = (readCount > 0) ? "Yes" : "No";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error in retrieveIsSensorRead: " + ex.Message);
+            }
+
+            return sensorList;
+        }
+
+
+
         public void clearTable(string strDBconnection, string strTableName)
         {
 
@@ -747,9 +795,6 @@ ExitPoint:
 
         }
 
-
-
-
         public List<Observation> getMeanCoordinates(string strDBconnection, string strPrismName, double Eprev, double Nprev, double Hprev, double Eref, double Nref, double Href, string strStart, string strTimeBlockStart, string strBlockSizeDays, string strLastBlockEndDate)
         {
 
@@ -1016,17 +1061,6 @@ ExitPoint:
 ExitPoint:
             return meanPrismObs;
         }
-
-
-
-
-
-
-
-
-
-
-
 
         public string getRailBracket(string strDBconnection, string strLongName)
         {
