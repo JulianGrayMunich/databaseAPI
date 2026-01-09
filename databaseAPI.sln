@@ -5,6 +5,10 @@ VisualStudioVersion = 17.8.34525.116
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "databaseAPI", "databaseAPI.csproj", "{F41C7AC7-38C0-4CC5-9352-0BB30A52D96F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GNAsurveycalcs", "..\..\GNAsurveytools\GNAsurvey\GNAsurveycalcs.csproj", "{FF7B7838-17E1-AC50-1846-7E472D84333C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "gnaDataClasses", "..\..\gnaDataClasses\gnaDataClasses\gnaDataClasses.csproj", "{05AA28DB-2C4E-4290-B61A-B50DCE9B0E63}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +19,14 @@ Global
 		{F41C7AC7-38C0-4CC5-9352-0BB30A52D96F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F41C7AC7-38C0-4CC5-9352-0BB30A52D96F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F41C7AC7-38C0-4CC5-9352-0BB30A52D96F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FF7B7838-17E1-AC50-1846-7E472D84333C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FF7B7838-17E1-AC50-1846-7E472D84333C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FF7B7838-17E1-AC50-1846-7E472D84333C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FF7B7838-17E1-AC50-1846-7E472D84333C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{05AA28DB-2C4E-4290-B61A-B50DCE9B0E63}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{05AA28DB-2C4E-4290-B61A-B50DCE9B0E63}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{05AA28DB-2C4E-4290-B61A-B50DCE9B0E63}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{05AA28DB-2C4E-4290-B61A-B50DCE9B0E63}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

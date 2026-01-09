@@ -1,8 +1,10 @@
-﻿using System.Globalization;
-using System.Data;
-using Microsoft.Data.SqlClient;
+﻿using System.Data;
+using System.Globalization;
+
 using GNAsurveytools;
 using gnaDataClasses;
+
+using Microsoft.Data.SqlClient;
 
 
 //
@@ -13,13 +15,14 @@ using gnaDataClasses;
 //===============[Initial settings]======================================
 #pragma warning disable CS0618
 #pragma warning disable CS8600
+#pragma warning disable IDE1006
+
 namespace databaseAPI
 {
 
     public class dbAPI
     {
         GNAsurveycalcs gnaSurvey = new();
-        gnaDataClass gnaDC = new();
 
 
         string strTab1 = "     ";
