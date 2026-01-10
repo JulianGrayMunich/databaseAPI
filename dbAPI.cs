@@ -16,6 +16,8 @@ using Microsoft.Data.SqlClient;
 #pragma warning disable CS0618
 #pragma warning disable CS8600
 #pragma warning disable IDE1006
+#pragma warning disable NU1510
+
 
 namespace databaseAPI
 {
