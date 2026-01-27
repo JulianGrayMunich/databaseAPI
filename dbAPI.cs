@@ -1,10 +1,13 @@
 ﻿using System.Data;
 using System.Globalization;
-
 using GNAsurveytools;
 using gnaDataClasses;
-
 using Microsoft.Data.SqlClient;
+
+
+
+
+
 
 
 //
@@ -25,7 +28,7 @@ namespace databaseAPI
     public class dbAPI
     {
         GNAsurveycalcs gnaSurvey = new();
-
+        //gnaTools gnaT = new();
 
         string strTab1 = "     ";
         string strTab2 = "        ";
@@ -36,16 +39,190 @@ namespace databaseAPI
             {
                 using var conn = new SqlConnection(connectionString);
                 conn.Open();
-                Console.WriteLine(strTab2+"DB Connection Successful");
+                Console.WriteLine(strTab2 + "DB Connection Successful");
             }
             catch (SqlException ex)
             {
-                Console.WriteLine(strTab2+$"DB connection failed:\n        {ex.Message}\n");
+                Console.WriteLine(strTab2 + $"DB connection failed:\n        {ex.Message}\n");
             }
 
         }
 
         //=== working
+
+        public string LocalToUTC(string localTime)
+        {
+
+            try
+            {
+                // Normalize input: handle null/whitespace, strip single/double quotes, trim
+                localTime = string.IsNullOrWhiteSpace(localTime)
+                    ? string.Empty
+                    : localTime.Replace("'", string.Empty)
+                               .Replace("\"", string.Empty)
+                               .Trim();
+
+                if (string.IsNullOrEmpty(localTime))
+                    throw new ArgumentException("Input timestamp is null or empty.", nameof(localTime));
+
+                // Accept both with and without seconds
+                string[] formats = { "yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss" };
+                var culture = CultureInfo.InvariantCulture;
+
+                if (!DateTime.TryParseExact(localTime, formats, culture, DateTimeStyles.AssumeLocal, out DateTime localDateTime))
+                    throw new FormatException($"Invalid local time format or impossible date: '{localTime}'. Expected yyyy-MM-dd HH:mm[:ss].");
+
+                // Convert to UTC and return with seconds, no quotes
+                DateTime utcDateTime = localDateTime.ToUniversalTime();
+                return utcDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            }
+            catch (Exception ex)
+            {
+                // Echo error to console before rethrow
+                Console.WriteLine($"convertLocalToUTC failed. Input='{localTime}'.\nError={ex.Message}");
+                throw; // preserve original stack trace
+            }
+        }
+
+
+        public List<PrismTimeBlockObservationCount> extractPrismStats(
+            string strDBconnection,
+            List<PrismIdentity> prismIdentities,
+            List<Tuple<string, string>> subBlocks)
+        {
+            if (string.IsNullOrWhiteSpace(strDBconnection))
+                throw new ArgumentException("DB connection string not provided.", nameof(strDBconnection));
+
+            if (prismIdentities == null)
+                throw new ArgumentNullException(nameof(prismIdentities));
+
+            if (subBlocks == null)
+                throw new ArgumentNullException(nameof(subBlocks));
+
+            var results = new List<PrismTimeBlockObservationCount>(
+                prismIdentities.Count * Math.Max(subBlocks.Count, 1));
+
+            // If there are no blocks, return empty deterministically.
+            if (subBlocks.Count == 0 || prismIdentities.Count == 0)
+                return results;
+
+            // SQL semantics: match legacy BETWEEN inclusive behaviour.
+            // Use EndTimeUTC >= @StartUtc AND EndTimeUTC <= @EndUtc (equivalent and parameter-friendly).
+            const string sql = @"
+                SELECT COUNT_BIG(1)
+                FROM dbo.TMTPosition_Terrestrial
+                WHERE SensorID = @SensorID
+                AND IsOutlier = 0
+                AND EndTimeUTC >= @StartUtc
+                AND EndTimeUTC <= @EndUtc;";
+
+            var utcFormat = "yyyy-MM-dd HH:mm:ss";
+            var culture = CultureInfo.InvariantCulture;
+
+            using (var conn = new SqlConnection(strDBconnection))
+            {
+                conn.Open();
+
+                using (var cmd = new SqlCommand(sql, conn))
+                {
+                    // Prepare parameters once and reuse.
+                    var pSensorId = cmd.Parameters.Add("@SensorID", System.Data.SqlDbType.VarChar, 50);
+                    var pStartUtc = cmd.Parameters.Add("@StartUtc", System.Data.SqlDbType.DateTime2);
+                    var pEndUtc = cmd.Parameters.Add("@EndUtc", System.Data.SqlDbType.DateTime2);
+
+                    for (int blockIndex = 0; blockIndex < subBlocks.Count; blockIndex++)
+                    {
+                        var block = subBlocks[blockIndex];
+
+                        if (block == null)
+                            throw new InvalidOperationException($"subBlocks[{blockIndex}] is null.");
+
+                        //string localStart = block.Item1 ?? string.Empty;
+                        //string localEnd = block.Item2 ?? string.Empty;
+
+                        //Convert local -> UTC using your canonical method.
+                        //convertLocalToUTC returns "yyyy-MM-dd HH:mm:ss"
+                        //string utcStartString = LocalToUTC(localStart);
+                        //string utcEndString = LocalToUTC(localEnd);
+
+
+                        string utcStartString = block.Item1 ?? string.Empty;
+                        string utcEndString = block.Item2 ?? string.Empty;
+
+
+
+
+                        if (!DateTime.TryParseExact(utcStartString, utcFormat, culture,
+                                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                                out DateTime utcStart))
+                        {
+                            throw new FormatException($"Invalid UTC start time: '{utcStartString}' (block {blockIndex}).");
+                        }
+
+                        if (!DateTime.TryParseExact(utcEndString, utcFormat, culture,
+                                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                                out DateTime utcEnd))
+                        {
+                            throw new FormatException($"Invalid UTC end time: '{utcEndString}' (block {blockIndex}).");
+                        }
+
+                        if (utcEnd < utcStart)
+                            throw new InvalidOperationException($"Time block end precedes start (block {blockIndex}): {utcStartString} -> {utcEndString}");
+
+                        // Set time parameters once per block.
+                        pStartUtc.Value = utcStart;
+                        pEndUtc.Value = utcEnd;
+
+                        for (int i = 0; i < prismIdentities.Count; i++)
+                        {
+                            PrismIdentity prism = prismIdentities[i];
+
+                            string sensorId = prism.SensorId?.Trim() ?? string.Empty;
+
+                            int count = 0;
+
+                            if (!string.IsNullOrEmpty(sensorId))
+                            {
+                                pSensorId.Value = sensorId;
+
+                                object? scalar = cmd.ExecuteScalar();
+
+                                // COUNT_BIG returns long
+                                long raw = 0;
+                                if (scalar != null && scalar != DBNull.Value)
+                                    raw = Convert.ToInt64(scalar, CultureInfo.InvariantCulture);
+
+                                if (raw < 0) raw = 0;
+                                if (raw > int.MaxValue) raw = int.MaxValue; // deterministic clamp
+
+                                count = (int)raw;
+                            }
+
+                            results.Add(new PrismTimeBlockObservationCount
+                            {
+                                SensorId = sensorId,
+                                PrismName = prism.PrismName ?? string.Empty,
+                                ReplacementName = prism.ReplacementName,
+                                AtsName = prism.AtsName ?? string.Empty,
+                                TimeBlockIndex = blockIndex,
+                                BlockStartUtc = utcStart,
+                                BlockEndUtc = utcEnd,
+                                ObservationCount = count
+                            });
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
+
+
+
+
+
+
 
 
 
@@ -140,665 +317,6 @@ AND EndTimeUTC BETWEEN " + strTimeBlockStartUTC + " AND " + strTimeBlockEndUTC;
             }
         }
 
-        public List<Observation> getMeanCoordinatesOLDLatest(string strDBconnection, string strPrismName, double Eprev, double Nprev, double Hprev, double Eref, double Nref, double Href, string strStart, string strTimeBlockStart, string strBlockSizeDays, string strLastBlockEndDate)
-
-
-        // Purpose:
-        //      To generate mean E,N,H,dT,dH per Timeblock (day/week/month etc) for strPrismName, using the dataAnalysis/Observations table
-        // Input:
-        //      as above
-        // Output:
-        //      list containing the mean E,N,H,dT,dH for strPrismName , meaned per time block, between start date and latest observation
-        // Useage:
-        //    
-        //
-
-        {
-            string strPreviousDate = "";
-            string strPreviousMeanDate = "";
-            DateTime dtTimeBlockStart, dtTimeBlockEnd, dtPrismDate;
-
-            // select all the observations for this strPrismName, ordered by EndTimeUTC
-            List<Observation> meanPrismObs = new();
-            List<Observation> prismObs = new();
-
-            using (SqlConnection conn = new(strDBconnection))
-            {
-                //open connection
-                conn.Open();
-                try
-                {
-                    // select observations
-                    string SQLaction = @"
-                    SELECT * 
-                    FROM Observations
-                    WHERE Name = @Name
-                    ORDER BY EndTimeUTC";
-
-                    SqlCommand cmd = new(SQLaction, conn);
-                    // define the parameter used in the command object and add to the command
-                    cmd.Parameters.Add(new SqlParameter("@Name", strPrismName));
-
-                    // Execute the data reader
-                    SqlDataReader dataReader = cmd.ExecuteReader();
-
-                    // get the values
-                    int iIndex = 0;
-                    string strCurrentTime = "";
-                    string strPreviousTime = "2000-01-01 00:00:00";
-
-                    while (dataReader.Read())
-                    {
-                        // to remove duplicate observations
-                        strCurrentTime = ((DateTime)dataReader["EndTimeUTC"]).ToString("yyyy-MM-dd hh:mm:ss");
-
-                        if (strCurrentTime != strPreviousTime)
-                        {
-                            prismObs.Add(new Observation()
-                            {
-                                Name = strPrismName,
-                                railBracket = (string)dataReader["railBracket"],
-                                E = (double)dataReader["E"],
-                                N = (double)dataReader["N"],
-                                H = (double)dataReader["H"],
-                                UTCtime = ((DateTime)dataReader["EndTimeUTC"]).ToString("yyyy-MM-dd 00:00:00")
-                            });
-                        }
-                        strPreviousTime = strCurrentTime;
-                        iIndex++;
-                    }
-
-                    // Close the dataReader
-                    dataReader?.Close();
-
-                    if (prismObs.Count < 1)
-                    {
-                        Console.WriteLine("        " + strPrismName + " (EMPTY NO OBS)");
-                        meanPrismObs.Add(new Observation()
-                        {
-                            Name = "Empty"
-                        });
-                        conn.Close();
-                        conn.Dispose();
-                        goto ExitPoint;
-                    }
-                    else
-                    {
-                        Console.WriteLine("        " + strPrismName + " " + prismObs.Count + " obs");
-                    }
-
-                    double Esum = 0.0;
-                    double Nsum = 0.0;
-                    double Hsum = 0.0;
-                    double Emean = 0.0;
-                    double Nmean = 0.0;
-                    double Hmean = 0.0;
-
-
-                    int i = 0;
-                    int iMeanCounter = 0;
-                    int iBlockCounter = 0;
-
-                    string strComputedMeanFlag = "No";
-
-
-                    // compute the means for the time block TimeBLockStart to TimeBlockEnd
-                    // string strMeanDate = prismObs[0].UTCtime; // date associated with the mean
-
-
-                    // prepare the time block
-                    double dblTimeBlockSizeDays = Math.Round(Convert.ToDouble(strBlockSizeDays) - 0.9, 1);
-                    dtTimeBlockStart = DateTime.Parse(strTimeBlockStart, CultureInfo.InvariantCulture);
-                    dtTimeBlockEnd = dtTimeBlockStart.AddDays(dblTimeBlockSizeDays);
-                    string strTimeBlockEnd = dtTimeBlockEnd.ToString("yyyy-MM-dd 23:59:59");
-
-                    string strMeanDate = strTimeBlockStart; // date associated with the mean
-                    strPreviousDate = strTimeBlockStart;
-                    string strRailBracket;
-
-
-                    int iNoOfObs = prismObs.Count;
-                    int iObsCounter = 0; // Observation counter
-                    do
-                    {
-                        string strPrismDate = prismObs[iObsCounter].UTCtime;
-                        strRailBracket = prismObs[iObsCounter].railBracket;
-
-                        dtPrismDate = DateTime.Parse(strPrismDate, CultureInfo.InvariantCulture);
-
-                        if ((dtPrismDate >= dtTimeBlockStart) && (dtPrismDate < dtTimeBlockEnd))
-                        {
-
-                            iBlockCounter++;
-                            Emean = Emean + prismObs[iObsCounter].E;
-                            Nmean = Nmean + prismObs[iObsCounter].N;
-                            Hmean = Hmean + prismObs[iObsCounter].H;
-                            //Console.WriteLine(i+"  "+strMeanDate+" "+prismObs[i].Name+ "  "+ prismObs[i].N + "  " + prismObs[i].E + "  " + prismObs[i].H);
-
-                            //Console.WriteLine("adding.."+iBlockCounter+ "  "+ strPrismDate);
-
-                            iObsCounter++; // Next reading
-                        }
-                        else if (dtPrismDate > dtTimeBlockEnd)
-                        {
-                            // this reading forms part of the next block
-                            // the mean for the previous block must be computed
-                            // the means are added to the meanPrismObs list
-                            // the counter is not incremented but the previous date is equated to the current date
-                            // On next loop the above option is activated
-
-                            strComputedMeanFlag = "Yes";
-                            if (iBlockCounter > 0)
-                            {
-                                //Console.WriteLine("compute mean.." + iBlockCounter + "  " + strPrismDate);
-
-                                Emean = Math.Round((Emean / iBlockCounter), 4);
-                                Nmean = Math.Round((Nmean / iBlockCounter), 4);
-                                Hmean = Math.Round((Hmean / iBlockCounter), 4);
-                                meanPrismObs.Add(new Observation()
-                                {
-                                    Name = strPrismName,
-                                    railBracket = strRailBracket,
-                                    E = Emean,
-                                    N = Nmean,
-                                    H = Hmean,
-                                    UTCtime = strMeanDate
-                                });
-                            }
-
-                            //Console.WriteLine("compute mean & add to meanPrismObs:");
-                            //Console.WriteLine(iMeanCounter+" "+meanPrismObs[iMeanCounter].UTCtime + " " + meanPrismObs[iMeanCounter].Name + "  " + meanPrismObs[iMeanCounter].N + "  " + meanPrismObs[iMeanCounter].E + "  " + meanPrismObs[iMeanCounter].H);
-
-                            iMeanCounter++;
-
-                            // Reset the mean counters
-                            iBlockCounter = 0;
-                            Emean = 0;
-                            Nmean = 0;
-                            Hmean = 0;
-
-                            // Prepare the next block
-                            strPreviousMeanDate = strMeanDate;
-                            dtTimeBlockStart = dtTimeBlockEnd.AddDays(1);
-                            strTimeBlockStart = dtTimeBlockStart.ToString("yyyy-MM-dd 00:00:00");
-                            dtTimeBlockStart = DateTime.Parse(strTimeBlockStart, CultureInfo.InvariantCulture);
-                            dtTimeBlockEnd = dtTimeBlockStart.AddDays(dblTimeBlockSizeDays);
-                            strTimeBlockEnd = dtTimeBlockEnd.ToString("yyyy-MM-dd 23:59:59");
-                            strMeanDate = strTimeBlockStart;
-                            //Console.WriteLine("next time block:");
-                            //Console.WriteLine(strTimeBlockStart + " " + strTimeBlockEnd + " Mean date: " + strMeanDate + "\n");
-                        }
-                        //strPreviousDate = strCurrentDate;
-                    } while (iObsCounter < iNoOfObs);
-
-
-                    Console.WriteLine("iNoOfObs: " + iNoOfObs + "\nmeanPrismObs.Count:" + meanPrismObs.Count + "\nstrComputedMeanFlag: " + strComputedMeanFlag + "\niBlockCounter:" + iBlockCounter + "\niNoOfMeanCoordinates:" + meanPrismObs.Count);
-
-                    // Corner case of only 1 reading in set
-                    if ((iNoOfObs == 1) && (meanPrismObs.Count == 1) && (strComputedMeanFlag == "Yes"))
-                    {
-                        iBlockCounter = 1;
-                        Emean = Math.Round((Emean / iBlockCounter), 4);
-                        Nmean = Math.Round((Nmean / iBlockCounter), 4);
-                        Hmean = Math.Round((Hmean / iBlockCounter), 4);
-
-                        meanPrismObs.Add(new Observation()
-                        {
-                            Name = strPrismName,
-                            railBracket = strRailBracket,
-                            E = Emean,
-                            N = Nmean,
-                            H = Hmean,
-                            UTCtime = strPreviousMeanDate
-                        });
-                        goto EntryPoint;
-                    }
-
-                    // Catch a corner case of readings on 1 day only.
-                    if ((iNoOfObs > 0) && (iBlockCounter > 0) && (strComputedMeanFlag == "Yes") && (strComputedMeanFlag == "Yes") && (meanPrismObs.Count == 0))
-                    {
-                        Emean = Math.Round((Emean / iBlockCounter), 4);
-                        Nmean = Math.Round((Nmean / iBlockCounter), 4);
-                        Hmean = Math.Round((Hmean / iBlockCounter), 4);
-
-                        meanPrismObs.Add(new Observation()
-                        {
-                            Name = strPrismName,
-                            railBracket = strRailBracket,
-                            E = Emean,
-                            N = Nmean,
-                            H = Hmean,
-                            UTCtime = strPreviousMeanDate
-                        });
-                        goto EntryPoint;
-                    }
-
-                    // Compute the mean for the last block
-
-                    if ((dtPrismDate < dtTimeBlockEnd) && (meanPrismObs.Count > 1))
-                    {
-                        Emean = Math.Round((Emean / iBlockCounter), 4);
-                        Nmean = Math.Round((Nmean / iBlockCounter), 4);
-                        Hmean = Math.Round((Hmean / iBlockCounter), 4);
-
-                        meanPrismObs.Add(new Observation()
-                        {
-                            Name = strPrismName,
-                            railBracket = prismObs[iMeanCounter].railBracket,
-                            E = Emean,
-                            N = Nmean,
-                            H = Hmean,
-                            UTCtime = strMeanDate
-                        });
-
-                    }
-
-EntryPoint:
-
-// Replace missing data NaN
-                    for (int ii = 0; ii < meanPrismObs.Count; ii++)
-                    {
-                        if (Convert.ToString(meanPrismObs[ii].N) == "NaN")
-                        {
-                            meanPrismObs[ii].E = -99;
-                            meanPrismObs[ii].N = -99;
-                            meanPrismObs[ii].H = -99;
-                            meanPrismObs[ii].dT = -99;
-                            meanPrismObs[ii].dH = -99;
-                        }
-
-                    }
-
-                    // the mean observations have been computed.
-
-                    // Compute dT and dH
-                    int iNoOfMeanCoordinates = meanPrismObs.Count;
-                    int iMeanIndex = 0;
-
-                    if ((iNoOfMeanCoordinates > 0) && (meanPrismObs.Count != null))
-                    {
-                        do
-                        {
-                            Emean = meanPrismObs[iMeanIndex].E;
-                            Nmean = meanPrismObs[iMeanIndex].N;
-                            Hmean = meanPrismObs[iMeanIndex].H;
-
-                            // compute dH
-                            double dH = Hmean - Href;
-
-                            // Compute dT
-
-                            // compute the current horizontal displacement
-                            var answer = gnaSurvey.Join(Eref, Nref, Emean, Nmean);
-                            double dblDisplacementBearing = answer.Item1;
-                            double dblDisplacementDist = answer.Item2;
-
-                            double dblYa, dblXa;
-                            double dblYb, dblXb;
-                            double dblYsurvey, dblXsurvey, dblYcurrent, dblXcurrent;
-                            double dblRailBearing, dblTransverseBearing, dblTransverseDisplacement;
-                            double bearingToSurveyLocation, bearingToCurrentLocation;
-                            double dblVerticalDisplacement;
-                            double Pi = 3.14159265358979323;
-
-                            dblYa = Eprev;
-                            dblXa = Nprev;
-                            dblYb = Eref;
-                            dblXb = Nref;
-                            dblYcurrent = Emean;
-                            dblXcurrent = Nmean;
-                            var answer1 = gnaSurvey.Join(dblYa, dblXa, dblYb, dblXb);
-                            dblRailBearing = answer1.Item1;                                 // the reference bearing of the rail
-                            dblTransverseBearing = dblRailBearing - (Pi / 2);
-                            if (dblTransverseBearing < 0) { dblTransverseBearing = dblTransverseBearing + (2 * Pi); }
-                            var answer3 = gnaSurvey.Join(dblYa, dblXa, dblYb, dblXb);
-                            bearingToSurveyLocation = answer3.Item1;
-                            var answer4 = gnaSurvey.Join(dblYa, dblXa, dblYcurrent, dblXcurrent);
-                            bearingToCurrentLocation = answer4.Item1;
-                            if (Math.Abs(bearingToSurveyLocation - bearingToCurrentLocation) > Pi)     // To catch where the track is lying almost exactly due north
-                            {
-                                if (bearingToSurveyLocation < bearingToCurrentLocation)
-                                {
-                                    bearingToSurveyLocation = bearingToSurveyLocation + (2 * Pi);
-                                }
-                                else
-                                {
-                                    bearingToCurrentLocation = bearingToCurrentLocation + (2 * Pi);
-                                }
-                            }
-
-                            var answer2 = gnaSurvey.Intersect(Eref, Nref, dblRailBearing, Emean, Nmean, dblTransverseBearing);
-                            dblTransverseDisplacement = answer2.Item4;
-
-                            if (bearingToCurrentLocation > bearingToSurveyLocation)
-                            {
-                                dblTransverseDisplacement = -1 * dblTransverseDisplacement;
-                            }
-
-                            if (strStart == "Yes")
-                            {
-                                dblTransverseDisplacement = -1 * dblTransverseDisplacement;
-                            }
-
-                            // add to meanPrisms
-                            meanPrismObs[iMeanIndex].dT = Math.Round(dblTransverseDisplacement, 4);
-                            meanPrismObs[iMeanIndex].dH = Math.Round(dH, 4);
-                            iMeanIndex++;
-                        } while (iMeanIndex < iNoOfMeanCoordinates);
-                    }
-                    else
-                    {
-                        meanPrismObs[iMeanIndex].dT = -99;
-                        meanPrismObs[iMeanIndex].dH = -99;
-                    }
-
-
-                }
-                catch (SqlException ex)
-                {
-                    Console.WriteLine("getMeanCoordinates failed: ");
-                    Console.WriteLine(ex);
-                    Console.WriteLine("Press key...");
-                    Console.ReadKey();
-                }
-                finally
-                {
-                    conn.Close();
-                    conn.Dispose();
-                }
-            }
-ExitPoint:
-            return meanPrismObs;
-
-        }
-
-        public List<Observation> getMeanCoordinatesOLD(string strDBconnection, string strPrismName, double Eprev, double Nprev, double Hprev, double Eref, double Nref, double Href, string strStart)
-
-        // this copy works for single day means
-
-        // Purpose:
-        //      To generate mean coordinates per DAY, including dTmean and dHmean in the dataAnalysis software, using the dataAnalysis/Observations table
-        // Input:
-        //      as above
-        // Output:
-        //      list containing the coordinates, meaned per time block, between start date and latest observation
-        // Useage:
-        //     gna.clearTable(strDBconnection, strTableName);
-        //
-
-
-        {
-            double E, N, H;
-            double ToRmean = 0.0;
-            string strBlockStartDate = "";
-            string strBlockEndDate = "";
-            string strCurrentDate = "";
-            string strPreviousDate = "";
-
-            // select all the observations for this prism, ordered by EndTimeUTC
-            List<Observation> meanPrismObs = new();
-            List<Observation> prismObs = new();
-
-            using (SqlConnection conn = new(strDBconnection))
-            {
-                //open connection
-                conn.Open();
-                try
-                {
-                    // select observations
-                    string SQLaction = @"
-                    SELECT * 
-                    FROM Observations
-                    WHERE Name = @Name
-                    ORDER BY EndTimeUTC";
-
-                    SqlCommand cmd = new(SQLaction, conn);
-                    // define the parameter used in the command object and add to the command
-                    cmd.Parameters.Add(new SqlParameter("@Name", strPrismName));
-
-                    // Execute the data reader
-                    SqlDataReader dataReader = cmd.ExecuteReader();
-
-                    // get the values
-                    int iIndex = 0;
-                    string strCurrentTime = "";
-                    string strPreviousTime = "2000-01-01 00:00:00";
-
-                    while (dataReader.Read())
-                    {
-                        // to remove duplicate observations
-                        strCurrentTime = ((DateTime)dataReader["EndTimeUTC"]).ToString("yyyy-MM-dd hh:mm:ss");
-
-                        if (strCurrentTime != strPreviousTime)
-                        {
-                            prismObs.Add(new Observation()
-                            {
-                                Name = strPrismName,
-                                railBracket = (string)dataReader["railBracket"],
-                                E = (double)dataReader["E"],
-                                N = (double)dataReader["N"],
-                                H = (double)dataReader["H"],
-                                UTCtime = ((DateTime)dataReader["EndTimeUTC"]).ToString("yyyy-MM-dd 00:00:00")
-                            });
-                        }
-                        strPreviousTime = strCurrentTime;
-                        iIndex++;
-                    }
-
-                    // Close the dataReader
-                    dataReader?.Close();
-
-                    if (prismObs.Count < 1)
-                    {
-                        Console.WriteLine("        " + strPrismName + " (EMPTY NO OBS)");
-                        meanPrismObs.Add(new Observation()
-                        {
-                            Name = "Empty"
-                        });
-                        conn.Close();
-                        conn.Dispose();
-                        goto ExitPoint;
-                    }
-                    else
-                    {
-                        Console.WriteLine("        " + strPrismName);
-                    }
-
-                    //for (int kk = 0; kk < prismObs.Count; kk++)
-                    //                    {
-                    //                        Console.WriteLine(kk + ": " + prismObs[kk].Name + "  " + prismObs[kk].UTCtime);
-                    //                    }
-                    //Console.ReadKey();
-
-                    strCurrentDate = prismObs[0].UTCtime;
-                    strPreviousDate = strCurrentDate;
-
-                    string strMeanDate = prismObs[0].UTCtime;
-                    strPreviousDate = strMeanDate;
-
-                    double Esum = 0.0;
-                    double Nsum = 0.0;
-                    double Hsum = 0.0;
-                    double Emean = 0.0;
-                    double Nmean = 0.0;
-                    double Hmean = 0.0;
-
-                    int iNoOfObs = prismObs.Count;
-                    int i = 0;
-                    int iMeanCounter = 0;
-                    int iBlockCounter = 0;
-
-                    string strComputedMeanFlag = "No";
-
-                    i = 0;
-
-                    do
-                    {
-                        string strPrismDate = prismObs[i].UTCtime;
-                        strCurrentDate = strPrismDate;
-
-                        if (strPrismDate == strMeanDate) // This reading gets added to the mean
-                        {
-                            iBlockCounter++;
-                            Emean = Emean + prismObs[i].E;
-                            Nmean = Nmean + prismObs[i].N;
-                            Hmean = Hmean + prismObs[i].H;
-
-                            //Console.WriteLine(strMeanDate+" "+prismObs[i].Name+ "  "+ prismObs[i].N + "  " + prismObs[i].E + "  " + prismObs[i].H);
-
-                            i++; // Next reading
-                        }
-                        else
-                        {
-                            // this reading forms part of the next block
-                            // the mean for the previous block must be computed
-                            // the counter is not incremented but the previous date is equated to the current date
-                            // On next loop the above option is activated
-
-
-
-                            strComputedMeanFlag = "Yes";
-                            Emean = Math.Round((Emean / iBlockCounter), 4);
-                            Nmean = Math.Round((Nmean / iBlockCounter), 4);
-                            Hmean = Math.Round((Hmean / iBlockCounter), 4);
-                            meanPrismObs.Add(new Observation()
-                            {
-                                Name = strPrismName,
-                                railBracket = prismObs[iMeanCounter].railBracket,
-                                E = Emean,
-                                N = Nmean,
-                                H = Hmean,
-                                UTCtime = strMeanDate
-                            });
-                            iMeanCounter++;
-
-                            //Console.WriteLine(strMeanDate + " " + prismObs[i].Name + "  " + Nmean + "  " + Emean + "  " + Hmean);
-                            //Console.WriteLine("-----------------------------------------------------------");
-
-                            // Reset the mean counters
-                            iBlockCounter = 0;
-                            Emean = 0;
-                            Nmean = 0;
-                            Hmean = 0;
-                            strMeanDate = strPrismDate;
-                        }
-                        strPreviousDate = strCurrentDate;
-                    } while (i < iNoOfObs);
-
-                    // Catch a corner case of readings on 1 day only.
-                    if ((iNoOfObs > 0) && (meanPrismObs.Count == 0) && (strComputedMeanFlag == "No"))
-                    {
-                        Emean = Math.Round((Emean / iBlockCounter), 4);
-                        Nmean = Math.Round((Nmean / iBlockCounter), 4);
-                        Hmean = Math.Round((Hmean / iBlockCounter), 4);
-
-                        meanPrismObs.Add(new Observation()
-                        {
-                            Name = strPrismName,
-                            railBracket = prismObs[iMeanCounter].railBracket,
-                            E = Emean,
-                            N = Nmean,
-                            H = Hmean,
-                            UTCtime = strPreviousDate
-                        });
-                    }
-
-
-                    // the mean observations have been computed.
-
-                    // Compute dT and dH
-                    int iNoOfMeanCoordinates = meanPrismObs.Count;
-                    int iMeanIndex = 0;
-                    if ((iNoOfMeanCoordinates > 0) && (meanPrismObs.Count != null))
-                    {
-                        do
-                        {
-                            Emean = meanPrismObs[iMeanIndex].E;
-                            Nmean = meanPrismObs[iMeanIndex].N;
-                            Hmean = meanPrismObs[iMeanIndex].H;
-
-                            // compute dH
-                            double dH = Hmean - Href;
-
-                            // Compute dT
-
-                            // compute the current horizontal displacement
-                            var answer = gnaSurvey.Join(Eref, Nref, Emean, Nmean);
-                            double dblDisplacementBearing = answer.Item1;
-                            double dblDisplacementDist = answer.Item2;
-
-                            double dblYa, dblXa;
-                            double dblYb, dblXb;
-                            double dblYsurvey, dblXsurvey, dblYcurrent, dblXcurrent;
-                            double dblRailBearing, dblTransverseBearing, dblTransverseDisplacement;
-                            double bearingToSurveyLocation, bearingToCurrentLocation;
-                            double dblVerticalDisplacement;
-                            double Pi = 3.14159265358979323;
-
-                            dblYa = Eprev;
-                            dblXa = Nprev;
-                            dblYb = Eref;
-                            dblXb = Nref;
-                            dblYcurrent = Emean;
-                            dblXcurrent = Nmean;
-                            var answer1 = gnaSurvey.Join(dblYa, dblXa, dblYb, dblXb);
-                            dblRailBearing = answer1.Item1;                                 // the reference bearing of the rail
-                            dblTransverseBearing = dblRailBearing - (Pi / 2);
-                            if (dblTransverseBearing < 0) { dblTransverseBearing = dblTransverseBearing + (2 * Pi); }
-                            var answer3 = gnaSurvey.Join(dblYa, dblXa, dblYb, dblXb);
-                            bearingToSurveyLocation = answer3.Item1;
-                            var answer4 = gnaSurvey.Join(dblYa, dblXa, dblYcurrent, dblXcurrent);
-                            bearingToCurrentLocation = answer4.Item1;
-                            if (Math.Abs(bearingToSurveyLocation - bearingToCurrentLocation) > Pi)     // To catch where the track is lying almost exactly due north
-                            {
-                                if (bearingToSurveyLocation < bearingToCurrentLocation)
-                                {
-                                    bearingToSurveyLocation = bearingToSurveyLocation + (2 * Pi);
-                                }
-                                else
-                                {
-                                    bearingToCurrentLocation = bearingToCurrentLocation + (2 * Pi);
-                                }
-                            }
-
-                            var answer2 = gnaSurvey.Intersect(Eref, Nref, dblRailBearing, Emean, Nmean, dblTransverseBearing);
-                            dblTransverseDisplacement = answer2.Item4;
-
-                            if (bearingToCurrentLocation > bearingToSurveyLocation)
-                            {
-                                dblTransverseDisplacement = -1 * dblTransverseDisplacement;
-                            }
-
-                            if (strStart == "Yes")
-                            {
-                                dblTransverseDisplacement = -1 * dblTransverseDisplacement;
-                            }
-
-                            // add to meanPrisms
-                            meanPrismObs[iMeanIndex].dT = Math.Round(dblTransverseDisplacement, 4);
-                            meanPrismObs[iMeanIndex].dH = Math.Round(dH, 4);
-                            iMeanIndex++;
-                        } while (iMeanIndex < iNoOfMeanCoordinates);
-                    }
-                }
-                catch (SqlException ex)
-                {
-                    Console.WriteLine("getMeanCoordinates failed: ");
-                    Console.WriteLine(ex);
-                    Console.WriteLine("Press key...");
-                    Console.ReadKey();
-                }
-                finally
-                {
-                    conn.Close();
-                    conn.Dispose();
-                }
-            }
-ExitPoint:
-
-            return meanPrismObs;
-
-        }
 
         public List<Observation> getMeanCoordinates(string strDBconnection, string strPrismName, double Eprev, double Nprev, double Hprev, double Eref, double Nref, double Href, string strStart, string strTimeBlockStart, string strBlockSizeDays, string strLastBlockEndDate)
         {
@@ -835,22 +353,22 @@ ExitPoint:
                     // Write the observations to the prismObs list 
                     while (dataReader.Read())
                     {
-                        
+
                         // Removes duplicates and outliers
                         strCurrentTime = ((DateTime)dataReader["EndTimeUTC"]).ToString("yyyy-MM-dd HH:mm:ss"); // 24-hour format
 
 
                         if (strCurrentTime != strPreviousTime)
                         {
-                            double dblE = Math.Round((double)dataReader["E"],4);
-                            double dblN = Math.Round((double)dataReader["N"],4);
-                            double dblH= Math.Round((double)dataReader["H"],4);
+                            double dblE = Math.Round((double)dataReader["E"], 4);
+                            double dblN = Math.Round((double)dataReader["N"], 4);
+                            double dblH = Math.Round((double)dataReader["H"], 4);
                             double dE = Math.Abs(dblE - Eref);
                             double dN = Math.Abs(dblN - Nref);
                             double dH = Math.Abs(dblH - Href);
 
 
-                            if ((dE< dblOutlierFilter) && (dN < dblOutlierFilter) && (dH < dblOutlierFilter) )   
+                            if ((dE < dblOutlierFilter) && (dN < dblOutlierFilter) && (dH < dblOutlierFilter))
                             {
                                 prismObs.Add(new Observation()
                                 {
@@ -894,7 +412,7 @@ ExitPoint:
                     //double dblTimeBlockSizeDays = Math.Round(Convert.ToDouble(strBlockSizeDays) - 0.9, 1);
                     double dblTimeBlockSizeDays = Math.Round(Convert.ToDouble(strBlockSizeDays) - 0.000694, 1); // reduce by 1 minute
                     dtTimeBlockStart = DateTime.Parse(strTimeBlockStart, CultureInfo.InvariantCulture);
-                    dtTimeBlockEnd = dtTimeBlockStart.AddDays(dblTimeBlockSizeDays+0.000694); // add the minute back
+                    dtTimeBlockEnd = dtTimeBlockStart.AddDays(dblTimeBlockSizeDays + 0.000694); // add the minute back
                     string strTimeBlockEnd = dtTimeBlockEnd.ToString("yyyy-MM-dd 23:59:59");
                     dtTimeBlockEnd = DateTime.Parse(strTimeBlockEnd, CultureInfo.InvariantCulture);
 
@@ -1349,191 +867,70 @@ ExitPoint:
             return new Tuple<double, int>(dblAverageDistance, intDistanceCounter);
         }
 
-        //public Tuple<double, double> extractAverageDistance(string strDBconnection, string strTimeBlockStart, string strTimeBlockEnd, string strSensorName, string strProjectTitle)
-        //{
-        //    //
-        //    // Purpose:
-        //    //      To extract the average raw distance from dbo.TMTDistance table for the time block strTimeBlockStart to strTimeBlockEnd
-        //    // 
-        //    // Input:
-        //    //      Receives 
-        //    //          the target name
-        //    //          the start and end time blocks
-        //    // Output:
-        //    //      Returns tuple<double,double> <average distance, no of distances used> 
-        //    // Useage:
-        //    //              var answer = gna.extractAverageDistance(strDBconnection, strTimeBlockStart, strTimeBlockEnd, strSensorName);
-        //    //              double dblAverageDistance = answer.Item1;
-        //    //              double dblNoOfElements = answer.Item2;  // this is actually an integer
-        //    // Comment:
-        //    //      If missing then 
-        //    //          average distance = 0.0
-        //    //          no of elements = -99
-        //    //          
-        //    //  20221015: the SQL expression completely re-written to include inner joins
-        //    //
-
-        //    double dblDistanceCounter = 0.0;
-        //    double dblAverageDistance = 0.0;
-        //    double dblRawDistance;
 
 
-        //    //Console.WriteLine(strSensorName);
 
 
-        //    // get the projectID
-        //    string strProjectID = getProjectID(strDBconnection, strProjectTitle);
+        public double getProjectTimeZoneOffset(string strDBconnection, string strProjectTitle)
+        {
+            //  Local Time = UTC + time offset
 
-        //    //instantiate and open connection
-        //    SqlConnection conn = new(strDBconnection);
-        //    conn.Open();
+            if (string.IsNullOrWhiteSpace(strDBconnection))
+                throw new ArgumentException("DB connection string not provided.", nameof(strDBconnection));
 
-        //    try
-        //    {
+            if (string.IsNullOrWhiteSpace(strProjectTitle))
+                throw new ArgumentException("Project title not provided.", nameof(strProjectTitle));
 
-        //        string SQLaction = @"
-        //        SELECT
-        //            RawDistance,
-        //            EndTimeUTC
-        //        FROM ((TMTDistance
-        //        INNER JOIN TMCSensor 
-        //            ON TMTDistance.SensorID = TMCSensor.ID 
-        //            AND TMCSensor.Name = @sensorName
-        //            )
-        //        INNER JOIN TMCLocation 
-        //            ON TMCSensor.LocationID = TMCLocation.ID 
-        //            AND TMCLocation.ProjectID = @ProjectID
-        //            )
-        //        WHERE [TMTDistance].[IsOutlier] = 0
-        //        AND TMTDistance.EndTimeUTC BETWEEN " + strTimeBlockStart + " AND " + strTimeBlockEnd;
+            const string sql = @"
+                SELECT TOP (1) TimeZoneOffset
+                FROM dbo.TMCMonitoringProjects
+                WHERE ProjectTitle = @ProjectTitle
+                AND IsDeleted = 0;";
 
+            using SqlConnection conn = new(strDBconnection);
+            conn.Open();
 
-        //        SqlCommand cmd = new(SQLaction, conn);
+            using SqlCommand cmd = new(sql, conn);
+            cmd.Parameters.Add("@ProjectTitle", SqlDbType.NVarChar, 256).Value = strProjectTitle.Trim();
 
-        //        // define the parameter used in the command object and add to the command
-        //        // I use this form as I am including a Unicode character in the Select statement
+            object? scalar = cmd.ExecuteScalar();
 
-        //        var par = new SqlParameter("@sensorName", System.Data.SqlDbType.NVarChar)
-        //        {
-        //            Value = strSensorName
-        //        };
+            if (scalar == null || scalar == DBNull.Value)
+                return 0.0;
 
-        //        cmd.Parameters.Add(new SqlParameter("@ProjectID", strProjectID));
-
-        //        // Define the data reader
-        //        SqlDataReader dataReader = cmd.ExecuteReader();
-
-        //        // get the values
-        //        while (dataReader.Read())
-        //        {
-        //            dblRawDistance = (double)dataReader["RawDistance"];
-        //            dblAverageDistance += dblRawDistance;
-        //            dblDistanceCounter++;
-        //        }
-
-        //        // Close the dataReader
-        //        dataReader?.Close();
-        //    }
-        //    catch (SqlException ex)
-        //    {
-        //        Console.WriteLine("extractAverageDistance: DB Connection Failed: ");
-        //        Console.WriteLine(ex);
-        //        Console.ReadKey();
-        //    }
-
-        //    finally
-        //    {
-        //        conn.Dispose();
-        //        conn.Close();
-        //    }
-
-        //    if (dblDistanceCounter > 0)
-        //    {
-        //        dblAverageDistance = Math.Round(dblAverageDistance / dblDistanceCounter, 4);
-        //    }
-        //    else
-        //    {
-        //        dblAverageDistance = 0.0;
-        //        dblDistanceCounter = -99.0;
-        //    }
-
-        //    // Console.WriteLine("extractAverageDistance: "+strSensorName+" - "+ Convert.ToString(dblAverageDistance));
-
-        //    return new Tuple<double, double>(dblAverageDistance, dblDistanceCounter);
-
-        //}
+            return Convert.ToDouble(scalar, CultureInfo.InvariantCulture);
+        }
 
         public string getProjectID(string strDBconnection, string strProjectTitle)
         {
-            // Purpose:
-            //      To determine the project ID from TMCMonitoringProjects
-            // Input:
-            //      Receives Project Title
-            // Output:
-            //      Returns Project ID
-            // Useage:
-            //      string strProjectID = gnaDBAPI.getProjectID(strDBconnection, strProjectTitle);
-            //
+            if (string.IsNullOrWhiteSpace(strDBconnection))
+                throw new ArgumentException("DB connection string not provided.", nameof(strDBconnection));
 
-            string strProjectID = "";
-            Int16 iCounter = 0;
+            if (string.IsNullOrWhiteSpace(strProjectTitle))
+                throw new ArgumentException("Project title not provided.", nameof(strProjectTitle));
 
-            // Connection and Reader declared outside the try block
-            using (SqlConnection conn = new(strDBconnection))
-            {
+            const string sql = @"
+            SELECT TOP (1) ID
+            FROM dbo.TMCMonitoringProjects
+            WHERE ProjectTitle = @ProjectTitle
+            AND IsDeleted = 0;";
 
-                //instantiate and open connection
-                conn.Open();
+            using SqlConnection conn = new(strDBconnection);
+            conn.Open();
 
-                try
-                {
-                    // define the SQL query
-                    string SQLaction = @"
-                    SELECT ID, ProjectTitle  
-                    FROM dbo.TMCMonitoringProjects 
-                    WHERE TMCMonitoringProjects.ProjectTitle = @ProjectName
-                    AND TMCMonitoringProjects.IsDeleted = 0
-                    ";
-                    SqlCommand cmd = new(SQLaction, conn);
+            using SqlCommand cmd = new(sql, conn);
+            cmd.Parameters.Add("@ProjectTitle", SqlDbType.NVarChar, 256).Value = strProjectTitle.Trim();
 
-                    // define the parameter used in the command object and add to the command
-                    cmd.Parameters.Add(new SqlParameter("@ProjectName", strProjectTitle));
+            object? scalar = cmd.ExecuteScalar();
 
-                    // Define the data reader
-                    SqlDataReader dataReader = cmd.ExecuteReader();
+            if (scalar == null || scalar == DBNull.Value)
+                return "Missing";
 
-                    // get the values
-                    while (dataReader.Read())
-                    {
-                        int iProjectID = (Int32)dataReader["ID"];
-                        strProjectID = Convert.ToString(iProjectID);
-                        iCounter++;
-                    }
-
-
-                    // Close the dataReader
-                    dataReader?.Close();
-
-                }
-
-                catch (SqlException ex)
-                {
-                    Console.WriteLine("getPointCoordinates: DB Connection Failed when retrieving Project ID => Project name not correct : ");
-                    Console.WriteLine(ex);
-                    Console.ReadKey();
-                }
-
-                finally
-                {
-                    conn.Dispose();
-                    conn.Close();
-                }
-            }
-
-            if (iCounter == 0) { strProjectID = "Missing"; }
-
-            return strProjectID;
+            return Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture) ?? "Missing";
         }
+
+
+
 
         public int getNoOfObservations(string strDBconnection, string strSensorID, string strTimeBlockStart, string strTimeBlockEnd)
         {
@@ -1965,7 +1362,7 @@ Exit:
             //      last point in list = "NoMore"
             //
 
-            
+
 
             string[,] strSensorID = new string[5000, 2];
             string strPointName;
@@ -2786,7 +2183,7 @@ ExitPoint:
 
                 if (pointID != "Missing" && obsCount > 0)
                 {
-                   
+
                     if (obsCount > 0)
                     {
                         meandN = Math.Round(deltas.Average(d => d.dN), 4);
