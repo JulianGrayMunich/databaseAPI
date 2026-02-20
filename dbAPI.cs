@@ -424,10 +424,8 @@ AND EndTimeUTC BETWEEN " + strTimeBlockStartUTC + " AND " + strTimeBlockEndUTC;
                     int iObsCounter = 0;
 
                     // Reset the summation and mean variables
-                    double Esum = 0.0, Nsum = 0.0, Hsum = 0.0;
                     double Emean = 0.0, Nmean = 0.0, Hmean = 0.0;
                     int iBlockCounter = 0;
-                    string strComputedMeanFlag = "No";
 
 
 
@@ -448,7 +446,7 @@ AND EndTimeUTC BETWEEN " + strTimeBlockStartUTC + " AND " + strTimeBlockEndUTC;
                         }
                         else if (dtPrismDate > dtTimeBlockEnd)
                         {
-                            strComputedMeanFlag = "Yes";
+
                             if (iBlockCounter > 0)
                             {
                                 Emean = Math.Round((Emean / iBlockCounter), 4);
