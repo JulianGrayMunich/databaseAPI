@@ -771,105 +771,174 @@ ExitPoint:
         }
 
 
-        public Tuple<double, int> extractAverageDistance(string strDBconnection, string strTimeBlockStart, string strTimeBlockEnd, string strSensorName, string strProjectTitle)
+
+
+
+public Tuple<double, int> extractAverageDistance(
+    string strDBconnection,
+    string strTimeBlockStart,
+    string strTimeBlockEnd,
+    string strSensorName,
+    string strProjectTitle)
+    {
+        // Returns: <average distance, number of distances used>
+        // If no data is found, returns: <0.0, -99>
+
+        if (string.IsNullOrWhiteSpace(strDBconnection))
+            throw new ArgumentException("DB connection string is null or empty.", nameof(strDBconnection));
+
+        if (string.IsNullOrWhiteSpace(strTimeBlockStart))
+            throw new ArgumentException("Start time is null or empty.", nameof(strTimeBlockStart));
+
+        if (string.IsNullOrWhiteSpace(strTimeBlockEnd))
+            throw new ArgumentException("End time is null or empty.", nameof(strTimeBlockEnd));
+
+        if (string.IsNullOrWhiteSpace(strSensorName))
+            throw new ArgumentException("Sensor name is null or empty.", nameof(strSensorName));
+
+        if (string.IsNullOrWhiteSpace(strProjectTitle))
+            throw new ArgumentException("Project title is null or empty.", nameof(strProjectTitle));
+
+        // Inclusive BETWEEN mitigation: end = endMinusOneSecond
+        string adjustedEndTime = AdjustEndTimeMinusOneSecond(
+            endTime: strTimeBlockEnd,
+            startTime: strTimeBlockStart);
+
+        string strProjectID = getProjectID(strDBconnection, strProjectTitle);
+        if (string.IsNullOrEmpty(strProjectID))
         {
-            //
-            // Purpose:
-            //      Extracts the average raw distance from dbo.TMTDistance table for the time block strTimeBlockStart to strTimeBlockEnd.
-            // 
-            // Input:
-            //      Receives 
-            //          the target name,
-            //          the start and end time blocks.
-            // Output:
-            //      Returns Tuple<double, int> <average distance, number of distances used>.
-            // 
-            // Usage:
-            //      var answer = gna.extractAverageDistance(strDBconnection, strTimeBlockStart, strTimeBlockEnd, strSensorName, strProjectTitle);
-            //      double avgDistance = answer.Item1;
-            //      int numElements = answer.Item2;
-            //
-            // If no data is found, returns:
-            //      <0.0, -99>
-            //
-
-            double dblAverageDistance = 0.0;
-            int intDistanceCounter = 0;
-
-            string strProjectID = getProjectID(strDBconnection, strProjectTitle);
-            if (string.IsNullOrEmpty(strProjectID))
-            {
-                Console.WriteLine("Error: Project Title not found: " + strProjectTitle);
-                Console.ReadKey();
-                return new Tuple<double, int>(0.0, -99);
-            }
-
-            string SQLaction = @"
-                SELECT RawDistance
-                FROM TMTDistance
-                INNER JOIN TMCSensor 
-                    ON TMTDistance.SensorID = TMCSensor.ID 
-                    AND TMCSensor.Name = @sensorName
-                INNER JOIN TMCLocation 
-                    ON TMCSensor.LocationID = TMCLocation.ID 
-                    AND TMCLocation.ProjectID = @ProjectID
-                WHERE TMTDistance.IsOutlier = 0
-                AND TMTDistance.EndTimeUTC BETWEEN @startTime AND @endTime";
-
-            using (SqlConnection conn = new SqlConnection(strDBconnection))
-            {
-                try
-                {
-                    conn.Open();
-
-                    using (SqlCommand cmd = new SqlCommand(SQLaction, conn))
-                    {
-                        // Add parameters to prevent SQL injection
-                        cmd.Parameters.Add(new SqlParameter("@sensorName", SqlDbType.NVarChar) { Value = strSensorName });
-                        cmd.Parameters.Add(new SqlParameter("@ProjectID", SqlDbType.NVarChar) { Value = strProjectID });
-                        cmd.Parameters.Add(new SqlParameter("@startTime", SqlDbType.NVarChar) { Value = strTimeBlockStart });
-                        cmd.Parameters.Add(new SqlParameter("@endTime", SqlDbType.NVarChar) { Value = strTimeBlockEnd });
-
-                        using (var dataReader = cmd.ExecuteReader())
-                        {
-                            while (dataReader.Read())
-                            {
-                                var rawDistanceValue = dataReader["RawDistance"].ToString();
-                                if (!string.Equals(rawDistanceValue, "Missing", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    dblAverageDistance += Convert.ToDouble(rawDistanceValue);
-                                    intDistanceCounter++;
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (SqlException ex)
-                {
-                    Console.WriteLine("Error:\nextractAverageDistance: DB Connection Failed: " + ex.Message);
-                    Console.ReadKey();
-                    return new Tuple<double, int>(0.0, -99);
-                }
-            }
-
-            if (intDistanceCounter > 0)
-            {
-                dblAverageDistance = Math.Round(dblAverageDistance / intDistanceCounter, 4);
-            }
-            else
-            {
-                dblAverageDistance = 0.0;
-                intDistanceCounter = -99;
-            }
-
-            return new Tuple<double, int>(dblAverageDistance, intDistanceCounter);
+            Console.WriteLine("Error: Project Title not found: " + strProjectTitle);
+            return new Tuple<double, int>(0.0, -99);
         }
 
+        // Optimised SQL:
+        // - Converts RawDistance to decimal via TRY_CONVERT, excludes non-numeric (including "Missing")
+        // - Computes AVG and COUNT in SQL
+        // - Keeps existing joins/filters and BETWEEN semantics
+        string SQLaction = @"
+        SELECT
+            AVG(CAST(TRY_CONVERT(decimal(18, 6), TMTDistance.RawDistance) AS decimal(18, 6))) AS AvgDistance,
+            COUNT(TRY_CONVERT(decimal(18, 6), TMTDistance.RawDistance)) AS NumDistances
+        FROM TMTDistance
+        INNER JOIN TMCSensor 
+            ON TMTDistance.SensorID = TMCSensor.ID 
+            AND TMCSensor.Name = @sensorName
+        INNER JOIN TMCLocation 
+            ON TMCSensor.LocationID = TMCLocation.ID 
+            AND TMCLocation.ProjectID = @ProjectID
+        WHERE TMTDistance.IsOutlier = 0
+          AND TMTDistance.EndTimeUTC BETWEEN @startTime AND @endTime
+          AND TRY_CONVERT(decimal(18, 6), TMTDistance.RawDistance) IS NOT NULL;";
+
+        using (SqlConnection conn = new SqlConnection(strDBconnection))
+        {
+            try
+            {
+                conn.Open();
+
+                using (SqlCommand cmd = new SqlCommand(SQLaction, conn))
+                {
+                    cmd.CommandType = CommandType.Text;
+
+                    cmd.Parameters.Add(new SqlParameter("@sensorName", SqlDbType.NVarChar) { Value = strSensorName });
+                    cmd.Parameters.Add(new SqlParameter("@ProjectID", SqlDbType.NVarChar) { Value = strProjectID });
+                    cmd.Parameters.Add(new SqlParameter("@startTime", SqlDbType.NVarChar) { Value = strTimeBlockStart });
+                    cmd.Parameters.Add(new SqlParameter("@endTime", SqlDbType.NVarChar) { Value = adjustedEndTime });
+
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (!reader.Read())
+                        {
+                            return new Tuple<double, int>(0.0, -99);
+                        }
+
+                        int ordAvg = reader.GetOrdinal("AvgDistance");
+                        int ordCnt = reader.GetOrdinal("NumDistances");
+
+                        int count = reader.IsDBNull(ordCnt) ? 0 : Convert.ToInt32(reader.GetValue(ordCnt), CultureInfo.InvariantCulture);
+
+                        if (count <= 0)
+                        {
+                            return new Tuple<double, int>(0.0, -99);
+                        }
+
+                        // AvgDistance can be returned as decimal/double depending on provider; handle both.
+                        decimal avgDec;
+
+                        if (reader.IsDBNull(ordAvg))
+                        {
+                            return new Tuple<double, int>(0.0, -99);
+                        }
+
+                        object avgObj = reader.GetValue(ordAvg);
+
+                        if (avgObj is decimal dec)
+                        {
+                            avgDec = dec;
+                        }
+                        else if (avgObj is double dbl)
+                        {
+                            avgDec = Convert.ToDecimal(dbl, CultureInfo.InvariantCulture);
+                        }
+                        else
+                        {
+                            string? s = Convert.ToString(avgObj, CultureInfo.InvariantCulture);
+                            if (string.IsNullOrWhiteSpace(s) || !decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out avgDec))
+                            {
+                                throw new FormatException($"AvgDistance returned by SQL is not numeric. Value: '{s ?? "<null>"}'.");
+                            }
+                        }
+
+                        avgDec = Math.Round(avgDec, 4, MidpointRounding.AwayFromZero);
+
+                        return new Tuple<double, int>((double)avgDec, count);
+                    }
+                }
+            }
+            catch (SqlException ex)
+            {
+                // Non-blocking error reporting; sentinel return preserved.
+                Console.WriteLine("Error:\nextractAverageDistance: DB Connection Failed: " + ex.Message);
+                return new Tuple<double, int>(0.0, -99);
+            }
+        }
+    }
+
+    private static string AdjustEndTimeMinusOneSecond(string endTime, string startTime)
+    {
+        const string fmt = "yyyy-MM-dd HH:mm:ss";
+
+        if (!DateTime.TryParseExact(endTime, fmt, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime endParsed))
+            throw new FormatException($"End time is not in required format '{fmt}'. Actual: '{endTime}'.");
+
+        if (!DateTime.TryParseExact(startTime, fmt, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime startParsed))
+            throw new FormatException($"Start time is not in required format '{fmt}'. Actual: '{startTime}'.");
+
+        DateTime adjusted = endParsed.AddSeconds(-1);
+
+        if (adjusted < startParsed)
+        {
+            // Degenerate block: keep original end time.
+            return endParsed.ToString(fmt, CultureInfo.InvariantCulture);
+        }
+
+        return adjusted.ToString(fmt, CultureInfo.InvariantCulture);
+    }
 
 
 
 
-        public double getProjectTimeZoneOffset(string strDBconnection, string strProjectTitle)
+
+
+
+
+
+
+
+
+
+
+    public double getProjectTimeZoneOffset(string strDBconnection, string strProjectTitle)
         {
             //  Local Time = UTC + time offset
 
