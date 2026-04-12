@@ -1,7 +1,13 @@
-﻿using System.Data;
+﻿using System.Collections.ObjectModel;
+using System.Data;
 using System.Globalization;
-using GNAsurveytools;
+using System.Text.RegularExpressions;
+using System.Timers;
+
 using gnaDataClasses;
+
+using GNAsurveytools;
+
 using Microsoft.Data.SqlClient;
 
 
@@ -9,10 +15,6 @@ using Microsoft.Data.SqlClient;
 
 
 
-
-//
-//  20240509    Add getAlarmStatus
-//
 
 
 //===============[Initial settings]======================================
@@ -774,48 +776,48 @@ ExitPoint:
 
 
 
-public Tuple<double, int> extractAverageDistance(
-    string strDBconnection,
-    string strTimeBlockStart,
-    string strTimeBlockEnd,
-    string strSensorName,
-    string strProjectTitle)
-    {
-        // Returns: <average distance, number of distances used>
-        // If no data is found, returns: <0.0, -99>
-
-        if (string.IsNullOrWhiteSpace(strDBconnection))
-            throw new ArgumentException("DB connection string is null or empty.", nameof(strDBconnection));
-
-        if (string.IsNullOrWhiteSpace(strTimeBlockStart))
-            throw new ArgumentException("Start time is null or empty.", nameof(strTimeBlockStart));
-
-        if (string.IsNullOrWhiteSpace(strTimeBlockEnd))
-            throw new ArgumentException("End time is null or empty.", nameof(strTimeBlockEnd));
-
-        if (string.IsNullOrWhiteSpace(strSensorName))
-            throw new ArgumentException("Sensor name is null or empty.", nameof(strSensorName));
-
-        if (string.IsNullOrWhiteSpace(strProjectTitle))
-            throw new ArgumentException("Project title is null or empty.", nameof(strProjectTitle));
-
-        // Inclusive BETWEEN mitigation: end = endMinusOneSecond
-        string adjustedEndTime = AdjustEndTimeMinusOneSecond(
-            endTime: strTimeBlockEnd,
-            startTime: strTimeBlockStart);
-
-        string strProjectID = getProjectID(strDBconnection, strProjectTitle);
-        if (string.IsNullOrEmpty(strProjectID))
+        public Tuple<double, int> extractAverageDistance(
+            string strDBconnection,
+            string strTimeBlockStart,
+            string strTimeBlockEnd,
+            string strSensorName,
+            string strProjectTitle)
         {
-            Console.WriteLine("Error: Project Title not found: " + strProjectTitle);
-            return new Tuple<double, int>(0.0, -99);
-        }
+            // Returns: <average distance, number of distances used>
+            // If no data is found, returns: <0.0, -99>
 
-        // Optimised SQL:
-        // - Converts RawDistance to decimal via TRY_CONVERT, excludes non-numeric (including "Missing")
-        // - Computes AVG and COUNT in SQL
-        // - Keeps existing joins/filters and BETWEEN semantics
-        string SQLaction = @"
+            if (string.IsNullOrWhiteSpace(strDBconnection))
+                throw new ArgumentException("DB connection string is null or empty.", nameof(strDBconnection));
+
+            if (string.IsNullOrWhiteSpace(strTimeBlockStart))
+                throw new ArgumentException("Start time is null or empty.", nameof(strTimeBlockStart));
+
+            if (string.IsNullOrWhiteSpace(strTimeBlockEnd))
+                throw new ArgumentException("End time is null or empty.", nameof(strTimeBlockEnd));
+
+            if (string.IsNullOrWhiteSpace(strSensorName))
+                throw new ArgumentException("Sensor name is null or empty.", nameof(strSensorName));
+
+            if (string.IsNullOrWhiteSpace(strProjectTitle))
+                throw new ArgumentException("Project title is null or empty.", nameof(strProjectTitle));
+
+            // Inclusive BETWEEN mitigation: end = endMinusOneSecond
+            string adjustedEndTime = AdjustEndTimeMinusOneSecond(
+                endTime: strTimeBlockEnd,
+                startTime: strTimeBlockStart);
+
+            string strProjectID = getProjectID(strDBconnection, strProjectTitle);
+            if (string.IsNullOrEmpty(strProjectID))
+            {
+                Console.WriteLine("Error: Project Title not found: " + strProjectTitle);
+                return new Tuple<double, int>(0.0, -99);
+            }
+
+            // Optimised SQL:
+            // - Converts RawDistance to decimal via TRY_CONVERT, excludes non-numeric (including "Missing")
+            // - Computes AVG and COUNT in SQL
+            // - Keeps existing joins/filters and BETWEEN semantics
+            string SQLaction = @"
         SELECT
             AVG(CAST(TRY_CONVERT(decimal(18, 6), TMTDistance.RawDistance) AS decimal(18, 6))) AS AvgDistance,
             COUNT(TRY_CONVERT(decimal(18, 6), TMTDistance.RawDistance)) AS NumDistances
@@ -830,100 +832,101 @@ public Tuple<double, int> extractAverageDistance(
           AND TMTDistance.EndTimeUTC BETWEEN @startTime AND @endTime
           AND TRY_CONVERT(decimal(18, 6), TMTDistance.RawDistance) IS NOT NULL;";
 
-        using (SqlConnection conn = new SqlConnection(strDBconnection))
-        {
-            try
+            using (SqlConnection conn = new SqlConnection(strDBconnection))
             {
-                conn.Open();
-
-                using (SqlCommand cmd = new SqlCommand(SQLaction, conn))
+                try
                 {
-                    cmd.CommandType = CommandType.Text;
+                    conn.Open();
 
-                    cmd.Parameters.Add(new SqlParameter("@sensorName", SqlDbType.NVarChar) { Value = strSensorName });
-                    cmd.Parameters.Add(new SqlParameter("@ProjectID", SqlDbType.NVarChar) { Value = strProjectID });
-                    cmd.Parameters.Add(new SqlParameter("@startTime", SqlDbType.NVarChar) { Value = strTimeBlockStart });
-                    cmd.Parameters.Add(new SqlParameter("@endTime", SqlDbType.NVarChar) { Value = adjustedEndTime });
-
-                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    using (SqlCommand cmd = new SqlCommand(SQLaction, conn))
                     {
-                        if (!reader.Read())
+                        cmd.CommandType = CommandType.Text;
+
+                        cmd.Parameters.Add(new SqlParameter("@sensorName", SqlDbType.NVarChar) { Value = strSensorName });
+                        cmd.Parameters.Add(new SqlParameter("@ProjectID", SqlDbType.NVarChar) { Value = strProjectID });
+                        cmd.Parameters.Add(new SqlParameter("@startTime", SqlDbType.NVarChar) { Value = strTimeBlockStart });
+                        cmd.Parameters.Add(new SqlParameter("@endTime", SqlDbType.NVarChar) { Value = adjustedEndTime });
+
+                        using (SqlDataReader reader = cmd.ExecuteReader())
                         {
-                            return new Tuple<double, int>(0.0, -99);
-                        }
-
-                        int ordAvg = reader.GetOrdinal("AvgDistance");
-                        int ordCnt = reader.GetOrdinal("NumDistances");
-
-                        int count = reader.IsDBNull(ordCnt) ? 0 : Convert.ToInt32(reader.GetValue(ordCnt), CultureInfo.InvariantCulture);
-
-                        if (count <= 0)
-                        {
-                            return new Tuple<double, int>(0.0, -99);
-                        }
-
-                        // AvgDistance can be returned as decimal/double depending on provider; handle both.
-                        decimal avgDec;
-
-                        if (reader.IsDBNull(ordAvg))
-                        {
-                            return new Tuple<double, int>(0.0, -99);
-                        }
-
-                        object avgObj = reader.GetValue(ordAvg);
-
-                        if (avgObj is decimal dec)
-                        {
-                            avgDec = dec;
-                        }
-                        else if (avgObj is double dbl)
-                        {
-                            avgDec = Convert.ToDecimal(dbl, CultureInfo.InvariantCulture);
-                        }
-                        else
-                        {
-                            string? s = Convert.ToString(avgObj, CultureInfo.InvariantCulture);
-                            if (string.IsNullOrWhiteSpace(s) || !decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out avgDec))
+                            if (!reader.Read())
                             {
-                                throw new FormatException($"AvgDistance returned by SQL is not numeric. Value: '{s ?? "<null>"}'.");
+                                return new Tuple<double, int>(0.0, -99);
                             }
+
+                            int ordAvg = reader.GetOrdinal("AvgDistance");
+                            int ordCnt = reader.GetOrdinal("NumDistances");
+
+                            int count = reader.IsDBNull(ordCnt) ? 0 : Convert.ToInt32(reader.GetValue(ordCnt), CultureInfo.InvariantCulture);
+
+                            if (count <= 0)
+                            {
+                                return new Tuple<double, int>(0.0, -99);
+                            }
+
+                            // AvgDistance can be returned as decimal/double depending on provider; handle both.
+                            decimal avgDec;
+
+                            if (reader.IsDBNull(ordAvg))
+                            {
+                                return new Tuple<double, int>(0.0, -99);
+                            }
+
+                            object avgObj = reader.GetValue(ordAvg);
+
+                            if (avgObj is decimal dec)
+                            {
+                                avgDec = dec;
+                            }
+                            else if (avgObj is double dbl)
+                            {
+                                avgDec = Convert.ToDecimal(dbl, CultureInfo.InvariantCulture);
+                            }
+                            else
+                            {
+                                string? s = Convert.ToString(avgObj, CultureInfo.InvariantCulture);
+                                if (string.IsNullOrWhiteSpace(s) || !decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out avgDec))
+                                {
+                                    throw new FormatException($"AvgDistance returned by SQL is not numeric. Value: '{s ?? "<null>"}'.");
+                                }
+                            }
+
+                            avgDec = Math.Round(avgDec, 4, MidpointRounding.AwayFromZero);
+
+                            return new Tuple<double, int>((double)avgDec, count);
                         }
-
-                        avgDec = Math.Round(avgDec, 4, MidpointRounding.AwayFromZero);
-
-                        return new Tuple<double, int>((double)avgDec, count);
                     }
                 }
-            }
-            catch (SqlException ex)
-            {
-                // Non-blocking error reporting; sentinel return preserved.
-                Console.WriteLine("Error:\nextractAverageDistance: DB Connection Failed: " + ex.Message);
-                return new Tuple<double, int>(0.0, -99);
+                catch (SqlException ex)
+                {
+                    // Non-blocking error reporting; sentinel return preserved.
+                    Console.WriteLine("Error:\nextractAverageDistance: DB Connection Failed: " + ex.Message);
+                    return new Tuple<double, int>(0.0, -99);
+                }
             }
         }
-    }
 
-    private static string AdjustEndTimeMinusOneSecond(string endTime, string startTime)
-    {
-        const string fmt = "yyyy-MM-dd HH:mm:ss";
-
-        if (!DateTime.TryParseExact(endTime, fmt, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime endParsed))
-            throw new FormatException($"End time is not in required format '{fmt}'. Actual: '{endTime}'.");
-
-        if (!DateTime.TryParseExact(startTime, fmt, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime startParsed))
-            throw new FormatException($"Start time is not in required format '{fmt}'. Actual: '{startTime}'.");
-
-        DateTime adjusted = endParsed.AddSeconds(-1);
-
-        if (adjusted < startParsed)
+        private static string AdjustEndTimeMinusOneSecond(string endTime, string startTime)
         {
-            // Degenerate block: keep original end time.
-            return endParsed.ToString(fmt, CultureInfo.InvariantCulture);
+            const string fmt = "yyyy-MM-dd HH:mm:ss";
+
+            if (!DateTime.TryParseExact(endTime, fmt, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime endParsed))
+                throw new FormatException($"End time is not in required format '{fmt}'. Actual: '{endTime}'.");
+
+            if (!DateTime.TryParseExact(startTime, fmt, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime startParsed))
+                throw new FormatException($"Start time is not in required format '{fmt}'. Actual: '{startTime}'.");
+
+            DateTime adjusted = endParsed.AddSeconds(-1);
+
+            if (adjusted < startParsed)
+            {
+                // Degenerate block: keep original end time.
+                return endParsed.ToString(fmt, CultureInfo.InvariantCulture);
+            }
+
+            return adjusted.ToString(fmt, CultureInfo.InvariantCulture);
         }
 
-        return adjusted.ToString(fmt, CultureInfo.InvariantCulture);
-    }
 
 
 
@@ -937,8 +940,7 @@ public Tuple<double, int> extractAverageDistance(
 
 
 
-
-    public double getProjectTimeZoneOffset(string strDBconnection, string strProjectTitle)
+        public double getProjectTimeZoneOffset_OLD_NO_DAYLIGHT_SAVINGS_APPLIED(string strDBconnection, string strProjectTitle)
         {
             //  Local Time = UTC + time offset
 
@@ -967,6 +969,188 @@ public Tuple<double, int> extractAverageDistance(
 
             return Convert.ToDouble(scalar, CultureInfo.InvariantCulture);
         }
+
+
+
+        public double getProjectTimeZoneOffset(string strDBconnection, string strProjectTitle)
+        {
+
+
+            if (string.IsNullOrWhiteSpace(strDBconnection))
+                throw new ArgumentException("DB connection string not provided.", nameof(strDBconnection));
+
+            if (string.IsNullOrWhiteSpace(strProjectTitle))
+                throw new ArgumentException("Project title not provided.", nameof(strProjectTitle));
+
+            const string sql = @"
+                SELECT TOP (1) TimeZoneName
+                FROM dbo.TMCMonitoringProjects
+                WHERE ProjectTitle = @ProjectTitle
+                AND IsDeleted = 0;";
+
+            using SqlConnection conn = new(strDBconnection);
+            conn.Open();
+
+            using SqlCommand cmd = new(sql, conn);
+            cmd.Parameters.Add("@ProjectTitle", SqlDbType.NVarChar, size: 256).Value = strProjectTitle.Trim();
+
+            object? scalar = cmd.ExecuteScalar();
+            
+
+            if (scalar == null || scalar == DBNull.Value)
+                return 0.0;
+
+            string strTimeZoneName = Convert.ToString(value: scalar, provider: CultureInfo.InvariantCulture)?.Trim()
+                ?? throw new InvalidOperationException("TimeZoneName could not be read.");
+
+            if (strTimeZoneName.Length == 0)
+                return 0.0;
+
+            TimeZoneInfo objTimeZone = ResolveTimeZoneInfo(timeZoneName: strTimeZoneName);
+
+            DateTime dteUtcNow = DateTime.UtcNow;
+            TimeSpan tspOffset = objTimeZone.GetUtcOffset(dateTime: dteUtcNow);
+
+            return tspOffset.TotalHours;
+        }
+
+
+
+        private TimeZoneInfo ResolveTimeZoneInfo(string timeZoneName)
+        {
+            if (string.IsNullOrWhiteSpace(timeZoneName))
+                throw new ArgumentException("Time zone name not provided.", nameof(timeZoneName));
+
+            string strWindowsTimeZoneId = ResolveWindowsTimeZoneId(timeZoneName: timeZoneName);
+
+            return TimeZoneInfo.FindSystemTimeZoneById(id: strWindowsTimeZoneId);
+        }
+
+
+        private string ResolveWindowsTimeZoneId(string timeZoneName)
+        {
+            if (string.IsNullOrWhiteSpace(timeZoneName))
+                throw new ArgumentException("Time zone name not provided.", nameof(timeZoneName));
+
+            string strTimeZoneName = timeZoneName.Trim();
+
+            if (TimeZoneDisplayNameToWindowsId.TryGetValue(key: strTimeZoneName, value: out string? strWindowsTimeZoneId))
+                return strWindowsTimeZoneId;
+
+            string strMessage = $"Unsupported or unrecognised time zone name: {timeZoneName}";
+            Console.WriteLine(strMessage);
+            throw new ArgumentException(strMessage, nameof(timeZoneName));
+        }
+
+
+        private static readonly Dictionary<string, string> TimeZoneDisplayNameToWindowsId =
+     new(comparer: StringComparer.OrdinalIgnoreCase)
+     {
+        { "(UTC-12:00) International Date Line West", "Dateline Standard Time" },
+        { "(UTC-11:00) Coordinated Universal Time-11", "UTC-11" },
+        { "(UTC-10:00) Aleutian Islands", "Aleutian Standard Time" },
+        { "(UTC-10:00) Hawaii", "Hawaiian Standard Time" },
+        { "(UTC-09:30) Marquesas Islands", "Marquesas Standard Time" },
+        { "(UTC-09:00) Alaska", "Alaskan Standard Time" },
+        { "(UTC-08:00) Baja California", "Pacific Standard Time (Mexico)" },
+        { "(UTC-08:00) Coordinated Universal Time-08", "UTC-08" },
+        { "(UTC-08:00) Pacific Time (US & Canada)", "Pacific Standard Time" },
+        { "(UTC-07:00) Arizona", "US Mountain Standard Time" },
+        { "(UTC-07:00) Chihuahua, La Paz, Mazatlan", "Mountain Standard Time (Mexico)" },
+        { "(UTC-07:00) Mountain Time (US & Canada)", "Mountain Standard Time" },
+        { "(UTC-06:00) Central America", "Central America Standard Time" },
+        { "(UTC-06:00) Central Time (US & Canada)", "Central Standard Time" },
+        { "(UTC-06:00) Easter Island", "Easter Island Standard Time" },
+        { "(UTC-06:00) Guadalajara, Mexico City, Monterrey", "Central Standard Time (Mexico)" },
+        { "(UTC-06:00) Saskatchewan", "Canada Central Standard Time" },
+        { "(UTC-05:00) Bogota, Lima, Quito, Rio Branco", "SA Pacific Standard Time" },
+        { "(UTC-05:00) Chetumal", "Eastern Standard Time (Mexico)" },
+        { "(UTC-05:00) Eastern Time (US & Canada)", "Eastern Standard Time" },
+        { "(UTC-05:00) Haiti", "Haiti Standard Time" },
+        { "(UTC-05:00) Havana", "Cuba Standard Time" },
+        { "(UTC-05:00) Indiana (East)", "US Eastern Standard Time" },
+        { "(UTC-04:30) Caracas", "Venezuela Standard Time" },
+        { "(UTC-04:00) Asuncion", "Paraguay Standard Time" },
+        { "(UTC-04:00) Atlantic Time (Canada)", "Atlantic Standard Time" },
+        { "(UTC-04:00) Cuiaba", "Central Brazilian Standard Time" },
+        { "(UTC-04:00) Georgetown, La Paz, Manaus, San Juan", "SA Western Standard Time" },
+        { "(UTC-04:00) Santiago", "Pacific SA Standard Time" },
+        { "(UTC-03:30) Newfoundland", "Newfoundland Standard Time" },
+        { "(UTC-03:00) Araguaina", "Tocantins Standard Time" },
+        { "(UTC-03:00) Brasilia", "E. South America Standard Time" },
+        { "(UTC-03:00) Cayenne, Fortaleza", "SA Eastern Standard Time" },
+        { "(UTC-03:00) City of Buenos Aires", "Argentina Standard Time" },
+        { "(UTC-03:00) Greenland", "Greenland Standard Time" },
+        { "(UTC-03:00) Montevideo", "Montevideo Standard Time" },
+        { "(UTC-03:00) Moscow, St. Petersburg, Volgograd", "Russian Standard Time" },
+        { "(UTC-03:00) Punta Arenas", "Magallanes Standard Time" },
+        { "(UTC-03:00) Saint Pierre and Miquelon", "Saint Pierre Standard Time" },
+        { "(UTC-03:00) Salvador", "Bahia Standard Time" },
+        { "(UTC-02:00) Coordinated Universal Time-02", "UTC-02" },
+        { "(UTC-01:00) Azores", "Azores Standard Time" },
+        { "(UTC-01:00) Cabo Verde Is.", "Cape Verde Standard Time" },
+        { "(UTC) Casablanca", "Morocco Standard Time" },
+        { "(UTC) Coordinated Universal Time", "UTC" },
+        { "(UTC) Dublin, Edinburgh, Lisbon, London", "GMT Standard Time" },
+        { "(UTC+00:00) Dublin, Edinburgh, Lisbon, London", "GMT Standard Time" },
+        { "(UTC) Monrovia, Reykjavik", "Greenwich Standard Time" },
+        { "(UTC+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna", "W. Europe Standard Time" },
+        { "(UTC+01:00) Belgrade, Bratislava, Budapest, Ljubljana, Prague", "Central Europe Standard Time" },
+        { "(UTC+01:00) Brussels, Copenhagen, Madrid, Paris", "Romance Standard Time" },
+        { "(UTC+01:00) Dublin, Edinburgh, Lisbon, London", "GMT Standard Time" },
+        { "(UTC+01:00) Sarajevo, Skopje, Warsaw, Zagreb", "Central European Standard Time" },
+        { "(UTC+01:00) West Central Africa", "W. Central Africa Standard Time" },
+        { "(UTC+01:00) Windhoek", "Namibia Standard Time" },
+        { "(UTC+02:00) Amman", "Jordan Standard Time" },
+        { "(UTC+02:00) Athens, Bucharest", "GTB Standard Time" },
+        { "(UTC+02:00) Beirut", "Middle East Standard Time" },
+        { "(UTC+02:00) Cairo", "Egypt Standard Time" },
+        { "(UTC+02:00) Damascus", "Syria Standard Time" },
+        { "(UTC+02:00) E. Europe", "E. Europe Standard Time" },
+        { "(UTC+02:00) Harare, Pretoria", "South Africa Standard Time" },
+        { "(UTC+02:00) Helsinki, Kyiv, Riga, Sofia, Tallinn, Vilnius", "FLE Standard Time" },
+        { "(UTC+02:00) Istanbul", "Türkiye Standard Time" },
+        { "(UTC+02:00) Middle East", "Israel Standard Time" },
+        { "(UTC+03:00) Baghdad", "Arabic Standard Time" },
+        { "(UTC+03:00) Kuwait, Riyadh", "Arab Standard Time" },
+        { "(UTC+03:00) Minsk", "Belarus Standard Time" },
+        { "(UTC+03:00) Nairobi", "E. Africa Standard Time" },
+        { "(UTC+03:00) Moscow, St. Petersburg, Volgograd (RTZ 2)", "Russian Standard Time" },
+        { "(UTC+03:30) Tehran", "Iran Standard Time" },
+        { "(UTC+04:00) Abu Dhabi, Muscat", "Arabian Standard Time" },
+        { "(UTC+04:00) Baku", "Azerbaijan Standard Time" },
+        { "(UTC+04:00) Port Louis", "Mauritius Standard Time" },
+        { "(UTC+04:00) Tbilisi", "Georgian Standard Time" },
+        { "(UTC+04:00) Yerevan", "Caucasus Standard Time" },
+        { "(UTC+04:30) Kabul", "Afghanistan Standard Time" },
+        { "(UTC+05:00) Ashgabat, Tashkent", "West Asia Standard Time" },
+        { "(UTC+05:00) Islamabad, Karachi", "Pakistan Standard Time" },
+        { "(UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi", "India Standard Time" },
+        { "(UTC+05:30) Sri Jayawardenepura", "Sri Lanka Standard Time" },
+        { "(UTC+05:45) Kathmandu", "Nepal Standard Time" },
+        { "(UTC+06:00) Astana", "Central Asia Standard Time" },
+        { "(UTC+06:00) Dhaka", "Bangladesh Standard Time" },
+        { "(UTC+06:30) Yangon (Rangoon)", "Myanmar Standard Time" },
+        { "(UTC+07:00) Bangkok, Hanoi, Jakarta", "SE Asia Standard Time" },
+        { "(UTC+08:00) Beijing, Chongqing, Hong Kong SAR, Urumqi", "China Standard Time" },
+        { "(UTC+08:00) Kuala Lumpur, Singapore", "Singapore Standard Time" },
+        { "(UTC+08:00) Taipei", "Taipei Standard Time" },
+        { "(UTC+08:00) Ulaanbaatar", "Ulaanbaatar Standard Time" },
+        { "(UTC+09:00) Osaka, Sapporo, Tokyo", "Tokyo Standard Time" },
+        { "(UTC+09:00) Seoul", "Korea Standard Time" },
+        { "(UTC+10:00) Canberra, Melbourne, Sydney", "AUS Eastern Standard Time" },
+        { "(UTC+10:00) Guam, Port Moresby", "West Pacific Standard Time" },
+        { "(UTC+11:00) Solomon Is., New Caledonia", "Central Pacific Standard Time" },
+        { "(UTC+12:00) Auckland, Wellington", "New Zealand Standard Time" },
+        { "(UTC+12:00) Coordinated Universal Time+12", "UTC+12" },
+        { "(UTC+12:00) Fiji", "Fiji Standard Time" },
+        { "(UTC+13:00) Nuku'alofa", "Tonga Standard Time" },
+        { "(UTC+13:00) Samoa", "Samoa Standard Time" }
+     };
+
+
+
+
 
         public string getProjectID(string strDBconnection, string strProjectTitle)
         {
