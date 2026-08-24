@@ -20,6 +20,10 @@ using Microsoft.Data.SqlClient;
 //===============[Initial settings]======================================
 #pragma warning disable CS0618
 #pragma warning disable CS8600
+#pragma warning disable CS8602
+#pragma warning disable CS8604
+
+
 #pragma warning disable IDE1006
 #pragma warning disable NU1510
 
@@ -32,7 +36,7 @@ namespace databaseAPI
         GNAsurveycalcs gnaSurvey = new();
         //gnaTools gnaT = new();
 
-        string strTab1 = "     ";
+        
         string strTab2 = "        ";
         public void testDBconnection(string connectionString)
         {
@@ -1002,6 +1006,7 @@ ExitPoint:
 
             string strTimeZoneName = Convert.ToString(value: scalar, provider: CultureInfo.InvariantCulture)?.Trim()
                 ?? throw new InvalidOperationException("TimeZoneName could not be read.");
+
 
             if (strTimeZoneName.Length == 0)
                 return 0.0;
@@ -2018,7 +2023,7 @@ PrepareData:
             //  List<Prism> prism = gnaDBAPI.getRailPrismsfromFixedDataTable(strDBconnection, strRailBracket);
 
 
-            string strString;
+            
             List<Prism> prism = new();
 
             using (SqlConnection conn = new(strDBconnection))
@@ -2087,7 +2092,7 @@ PrepareData:
             // Use
             //  List<Prism> prism = gnaDBAPI.getPrismsfromFixedDataTable(strDBconnection);
 
-            string strString;
+            
             List<Prism> prism = new();
 
             using (SqlConnection conn = new(strDBconnection))
@@ -2244,7 +2249,7 @@ ExitPoint:
             //  List<Observation> dayObs = gnaDBAPI.getDayDtDh(strDBconnection, strWorkbookFullPath, strCurrentDay, strRailBracket, prism);
 
 
-            string strString;
+            
             string strDate = strCurrentDay;
             strCurrentDay = "'" + strCurrentDay + "'";
             List<Observation> Obs = new();
@@ -2287,7 +2292,7 @@ ExitPoint:
 
                     // Address the issue if there are no observations for that day
                     int iNoOfObs = Obs.Count;
-                    if ((iNoOfObs == 0) || (iNoOfObs == null))
+                    if (iNoOfObs == 0)
                     {
                         Obs.Add(new Observation()
                         {
