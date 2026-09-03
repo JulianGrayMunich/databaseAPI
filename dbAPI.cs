@@ -1,4 +1,5 @@
-﻿using System.Collections.ObjectModel;
+﻿#region Using Directives    
+using System.Collections.ObjectModel;
 using System.Data;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -10,14 +11,10 @@ using GNAsurveytools;
 
 using Microsoft.Data.SqlClient;
 
+#endregion
 
 
-
-
-
-
-
-//===============[Initial settings]======================================
+#region Suppress Warnings   
 #pragma warning disable CS0618
 #pragma warning disable CS8600
 #pragma warning disable CS8602
@@ -26,7 +23,7 @@ using Microsoft.Data.SqlClient;
 
 #pragma warning disable IDE1006
 #pragma warning disable NU1510
-
+#endregion
 
 namespace databaseAPI
 {
